@@ -1,0 +1,9 @@
+{
+  "id": "praxis-review",
+  "repositories": [{ "name": "praxis", "path": "..", "include": ["src/**", "tests/**"], "exclude": [] }],
+  "model": { "provider": "local-gpt", "id": "gpt-6.1-sol", "thinking": "low" },
+  "intervalSeconds": 86400,
+  "batchCharacters": 40000,
+  "timeoutSeconds": 180,
+  "focus": "Find reproducible correctness, security and reliability defects."
+}
