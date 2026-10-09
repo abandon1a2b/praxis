@@ -1,0 +1,16 @@
+{
+  "name": "praxis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An extensible autonomous agent system",
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "pi": "pi"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  }
+}
