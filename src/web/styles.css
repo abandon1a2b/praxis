@@ -1,4 +1,75 @@
 @import "tailwindcss";
+.trajectory ol {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0;
+  border-left: 2px solid var(--border);
+}
+.trajectory li {
+  margin-left: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+.trajectory summary {
+  cursor: pointer;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.trace-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.trajectory time,
+.trace-id {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.trace-id {
+  display: block;
+  margin-top: 12px;
+  overflow-wrap: anywhere;
+}
+.trajectory h4 {
+  font-size: 12px;
+  margin: 16px 0 8px;
+  color: var(--muted-foreground);
+}
+.trajectory pre,
+.task-text {
+  background: var(--muted);
+  padding: 14px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 460px;
+  overflow: auto;
+}
+.task-prompt {
+  display: block;
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.report-view .section-heading p {
+  overflow-wrap: anywhere;
+}
+@media (max-width: 760px) {
+  .trajectory summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .task-prompt {
+    max-width: 160px;
+  }
+}
 
 @theme inline {
   --color-background: var(--background);

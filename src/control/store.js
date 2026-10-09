@@ -207,6 +207,7 @@ export class Store {
       .map((r) => this.getTask(r.id));
   }
   taskEvent(id, event) {
+    event = { ...event, time: event.time ?? new Date().toISOString() };
     this.db
       .prepare("INSERT INTO task_events (task_id,event) VALUES (?,?)")
       .run(id, JSON.stringify(event));

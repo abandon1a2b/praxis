@@ -1,5 +1,5 @@
 import { useState } from "react";
-import useSWR from "swr";
+import useSWR, { useSWRConfig } from "swr";
 import {
   Activity,
   FolderGit2,
@@ -28,8 +28,10 @@ import { ConfigForm } from "./config-form";
 import { ReportView } from "./report";
 import { request, time, statusLabels } from "./api";
 import type { Business, Model, Run, RunSummary } from "./types";
+import { TaskHistory } from "./task-history";
 
 export function App() {
+  const { mutate } = useSWRConfig();
   const {
     data: businesses,
     error: loadError,
@@ -42,6 +44,7 @@ export function App() {
   const [runId, setRunId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [tasksView, setTasksView] = useState(false);
   const business =
     businesses?.find((b) => b.id === selected) ??
     (selected === null ? businesses?.[0] : undefined);
@@ -98,6 +101,13 @@ export function App() {
           <Activity />
           <span>Praxis</span>
         </a>
+        <Button
+          variant={tasksView ? "secondary" : "ghost"}
+          onClick={() => setTasksView(true)}
+        >
+          <Activity data-icon="inline-start" />
+          任务轨迹
+        </Button>
         <div className="sidebar-label">业务</div>
         <nav aria-label="业务列表">
           {businesses?.map((b) => (
@@ -105,9 +115,10 @@ export function App() {
               key={b.id}
               className={cn(
                 "business-nav",
-                !creating && business?.id === b.id && "selected",
+                !tasksView && !creating && business?.id === b.id && "selected",
               )}
               onClick={() => {
+                setTasksView(false);
                 setSelected(b.id);
                 setCreating(false);
                 setRunId(null);
@@ -124,6 +135,7 @@ export function App() {
         <Button
           variant="outline"
           onClick={() => {
+            setTasksView(false);
             setCreating(true);
             setRunId(null);
             setError("");
@@ -139,14 +151,22 @@ export function App() {
       </aside>
       <main>
         <header className="topbar">
-          <span>代码检查</span>
-          <Badge variant="outline">只读</Badge>
+          <span>{tasksView ? "执行记录" : "代码检查"}</span>
+          <Badge variant="outline">{tasksView ? "任务" : "只读"}</Badge>
           <Button
             variant="ghost"
             size="icon-sm"
             title="刷新"
             aria-label="刷新"
-            onClick={() => void action(async () => {})}
+            onClick={() =>
+              void action(async () => {
+                if (tasksView)
+                  await mutate(
+                    (key) =>
+                      typeof key === "string" && key.startsWith("/api/tasks"),
+                  );
+              })
+            }
           >
             <RefreshCw />
           </Button>
@@ -160,7 +180,9 @@ export function App() {
               </AlertDescription>
             </Alert>
           ) : null}
-          {!businesses && !loadError ? (
+          {tasksView ? (
+            <TaskHistory />
+          ) : !businesses && !loadError ? (
             <>
               <Skeleton className="h-10 w-48" />
               <Skeleton className="h-64 w-full" />

@@ -1,5 +1,91 @@
 import { test, expect } from "@playwright/test";
 
+test("task trajectory expands tool parameters and outputs on desktop and mobile", async ({
+  page,
+}) => {
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("**/api/**", (route) => {
+    const p = new URL(route.request().url()).pathname;
+    if (p === "/api/tasks")
+      return route.fulfill({
+        json: [
+          {
+            id: "a-b",
+            status: "completed",
+            createdAt: "2026-10-09T00:00:00Z",
+            input: { prompt: "Inspect service health", cwd: "/tmp/service" },
+            result: { text: "Service healthy" },
+            error: null,
+          },
+        ],
+      });
+    if (p.endsWith("/trajectory"))
+      return route.fulfill({
+        json: {
+          limited: false,
+          events: [
+            {
+              id: "1",
+              type: "tool_execution_start",
+              time: "2026-10-09T00:00:00Z",
+              title: "bash",
+              state: "started",
+              input: '{"command":"check-health"}',
+            },
+            {
+              id: "2",
+              type: "tool_execution_end",
+              time: "2026-10-09T00:00:01Z",
+              title: "bash",
+              state: "completed",
+              output: "HTTP 200 healthy",
+            },
+            {
+              id: "3",
+              type: "message_end",
+              time: "2026-10-09T00:00:02Z",
+              title: "模型回复",
+              state: "completed",
+              output: "Service healthy",
+            },
+          ],
+        },
+      });
+    return route.fulfill({ json: [] });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "任务轨迹", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "任务轨迹", exact: true }),
+  ).toBeVisible();
+  const entries = page.locator(".trajectory details");
+  await expect(entries).toHaveCount(3);
+  await entries.nth(0).locator("summary").click();
+  await expect(
+    page.getByText('{"command":"check-health"}', { exact: true }),
+  ).toBeVisible();
+  await entries.nth(1).locator("summary").click();
+  await expect(
+    page.getByText("HTTP 200 healthy", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/praxis-trajectory-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({
+    path: "/tmp/praxis-trajectory-mobile.png",
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+});
+
 test("native coverage distinguishes file access from full semantic verification", async ({
   page,
 }) => {

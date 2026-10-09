@@ -182,6 +182,7 @@ export async function executeNative(
   onSession(session);
   onEvent({
     type: "session_ready",
+    sessionDir,
     sessionFile: session.sessionFile,
     activeTools: session.getActiveToolNames(),
     resources: {
@@ -202,7 +203,10 @@ export async function executeNative(
       ].includes(event.type)
     ) {
       journal = journal.then(() =>
-        appendFile(eventsFile, JSON.stringify(event) + "\n"),
+        appendFile(
+          eventsFile,
+          JSON.stringify({ ...event, time: new Date().toISOString() }) + "\n",
+        ),
       );
       if (event.type.startsWith("tool_execution"))
         onEvent({
@@ -234,6 +238,7 @@ export async function executeNative(
         .map((m) => m.usage)
         .filter(Boolean),
       sessionFile: session.sessionFile,
+      sessionDir,
     };
   } finally {
     clearTimeout(timer);

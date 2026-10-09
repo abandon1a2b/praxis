@@ -2,6 +2,8 @@ import { z } from "zod";
 import packageInfo from "../../package.json" with { type: "json" };
 import { businessSchema } from "./config.js";
 import { taskSchema } from "./tasks.js";
+import path from "node:path";
+import { readTrajectory } from "./trajectory.js";
 
 export class NotFound extends Error {}
 
@@ -36,6 +38,39 @@ export function createApi({ store, controller, listModels, tasks }) {
     return value;
   };
   const routes = [
+    {
+      method: "GET",
+      path: "/api/tasks/{runId}/trajectory",
+      params: { runId },
+      summary: "查看通用任务的执行轨迹。",
+      response:
+        "{events,limited}，最多最近 200 条模型文本、工具参数/结果、追加指令和压缩事件；不返回内部推理。",
+      handle: (p) => {
+        const t = task(p.runId);
+        const dir =
+          t.result?.sessionDir ??
+          (t.result?.sessionFile ? path.dirname(t.result.sessionFile) : null);
+        return readTrajectory(
+          dir ? path.join(dir, "events.jsonl") : null,
+          store.taskEvents(p.runId).filter((e) => e.type === "user_message"),
+        );
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/runs/{runId}/trajectory",
+      params: { runId },
+      summary: "查看业务检查执行轨迹。",
+      response: "{events,limited}，没有原生日志的历史运行返回空 events。",
+      handle: (p) => {
+        const r = run(p.runId);
+        return readTrajectory(
+          r.report?.sessionDir
+            ? path.join(r.report.sessionDir, "events.jsonl")
+            : null,
+        );
+      },
+    },
     {
       method: "GET",
       path: "/api/tasks",

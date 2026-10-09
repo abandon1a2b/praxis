@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/select";
 import { time, statusLabels } from "./api";
 import type { Run } from "./types";
+import { Trajectory } from "./trajectory";
 
 export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
   const [query, setQuery] = useState("");
@@ -95,6 +96,7 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
           <TabsTrigger value="findings">问题</TabsTrigger>
           <TabsTrigger value="coverage">覆盖范围</TabsTrigger>
           <TabsTrigger value="goal">运行目标</TabsTrigger>
+          <TabsTrigger value="trajectory">执行轨迹</TabsTrigger>
         </TabsList>
         <TabsContent value="findings">
           <div className="report-filters">
@@ -229,6 +231,12 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
             <h3>运行标识</h3>
             <code>{run.id}</code>
           </div>
+        </TabsContent>
+        <TabsContent value="trajectory">
+          <Trajectory
+            url={`/api/runs/${run.id}/trajectory`}
+            active={run.status === "running"}
+          />
         </TabsContent>
       </Tabs>
     </section>
