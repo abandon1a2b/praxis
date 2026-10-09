@@ -95,7 +95,7 @@ const server = http.createServer(async (req, res) => {
         req.headers["sec-fetch-site"] === "cross-site"
       )
         return json(res, 403, { error: "Cross-site request rejected" });
-      const endpoint = api.match(req.method, url.pathname);
+      const endpoint = api.match(req.method, url.pathname, url.searchParams);
       if (endpoint)
         return json(
           res,

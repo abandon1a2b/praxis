@@ -17,6 +17,19 @@ export class Store {
       CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, input TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT, result TEXT, error TEXT, parent_id TEXT);
       CREATE TABLE IF NOT EXISTS task_events (task_id TEXT NOT NULL REFERENCES tasks(id), seq INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL);
     `);
+    if (
+      !this.db
+        .prepare("PRAGMA table_info(tasks)")
+        .all()
+        .some((column) => column.name === "session_id")
+    )
+      this.db.exec("ALTER TABLE tasks ADD COLUMN session_id TEXT");
+    this.db.exec(
+      `WITH RECURSIVE ancestry(id,session_id) AS (SELECT id,id FROM tasks WHERE parent_id IS NULL OR parent_id NOT IN (SELECT id FROM tasks) UNION ALL SELECT t.id,a.session_id FROM tasks t JOIN ancestry a ON t.parent_id=a.id) UPDATE tasks SET session_id=COALESCE((SELECT session_id FROM ancestry WHERE ancestry.id=tasks.id),id) WHERE session_id IS NULL`,
+    );
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS tasks_by_session ON tasks(session_id,created_at)",
+    );
   }
   listBusinesses() {
     return this.db
@@ -175,7 +188,7 @@ export class Store {
     const id = randomUUID();
     this.db
       .prepare(
-        "INSERT INTO tasks (id,input,status,created_at,parent_id) VALUES (?,?,?,?,?)",
+        "INSERT INTO tasks (id,input,status,created_at,parent_id,session_id) VALUES (?,?,?,?,?,?)",
       )
       .run(
         id,
@@ -183,6 +196,7 @@ export class Store {
         "running",
         new Date().toISOString(),
         parentId ?? null,
+        parentId ? (this.getTask(parentId)?.sessionId ?? id) : id,
       );
     return this.getTask(id);
   }
@@ -198,6 +212,7 @@ export class Store {
       result: r.result ? JSON.parse(r.result) : null,
       error: r.error,
       parentId: r.parent_id,
+      sessionId: r.session_id,
     };
   }
   listTasks() {
@@ -205,6 +220,44 @@ export class Store {
       .prepare("SELECT id FROM tasks ORDER BY created_at DESC LIMIT 100")
       .all()
       .map((r) => this.getTask(r.id));
+  }
+  sessionTasks(id) {
+    return this.db
+      .prepare(
+        "SELECT id FROM tasks WHERE session_id=? ORDER BY created_at,rowid",
+      )
+      .all(id)
+      .map((row) => this.getTask(row.id));
+  }
+  listSessions() {
+    return this.db
+      .prepare(
+        "SELECT session_id FROM tasks GROUP BY session_id ORDER BY MAX(created_at) DESC LIMIT 100",
+      )
+      .all()
+      .map((row) => {
+        const turns = this.sessionTasks(row.session_id),
+          first = turns[0],
+          last = turns.at(-1);
+        return {
+          id: row.session_id,
+          title: first.input.prompt,
+          cwd: first.input.cwd,
+          createdAt: first.createdAt,
+          updatedAt: last.createdAt,
+          status: last.status,
+          turnCount: turns.length,
+          latestTaskId: last.id,
+        };
+      });
+  }
+  userTaskEvents(id) {
+    return this.db
+      .prepare(
+        "SELECT seq,event FROM task_events WHERE task_id=? AND json_extract(event,'$.type')='user_message' ORDER BY seq",
+      )
+      .all(id)
+      .map((r) => ({ seq: r.seq, ...JSON.parse(r.event) }));
   }
   taskEvent(id, event) {
     event = { ...event, time: event.time ?? new Date().toISOString() };

@@ -25,3 +25,5 @@ Pi SDK 的 customTools 注册并不自动启用工具。第一次比较时保留
 `npm run verify:pi` 创建临时 fixture，要求原生编辑修复、bash 测试、资源标记、MCP 调用及 steer 标记，再打开同一会话续接。开发模式无 OS 沙箱，不能沿用只读模式“无法修改控制层文件”的保证。当前没有自动续接策略，也未验证实际触发长上下文压缩；这些边界仍需单独验收。
 
 验证还发现 DefaultResourceLoader.reload 会重载设置，过早 applyOverrides 的 defaultTools 未保留。现在资源加载后再次应用原生工具列表，验收明确检查 read/bash/edit/write/grep/find/ls/codemode/tool_search 全部可用。2026-10-09 的完整实测通过，证据目录为 `/var/folders/ym/rd5r62yn3zsbzm1pbpj9087h0000gn/T/praxis-full-pi-NeFpUI`；其中 result.json 含资源、工具事件、回复及同一会话续接结果。
+
+轨迹初版按任务裁剪最近 200 条，无法呈现长会话与续接关系。现已区分 sessionId 和 taskId，基于原生日志投影用户轮次、模型步骤、配对调用与结果，并分页查询。历史日志没有时间、步骤或独立运行边界时，不补造缺失事实；旧共用日志只投影一次。未来重构优先考虑追加事件的偏移索引、派生状态和虚拟渲染，不另造模型上下文或将执行日志当长期记忆。详见 `docs/session-trajectories.md`。

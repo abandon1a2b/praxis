@@ -3,7 +3,11 @@ import packageInfo from "../../package.json" with { type: "json" };
 import { businessSchema } from "./config.js";
 import { taskSchema } from "./tasks.js";
 import path from "node:path";
-import { readTrajectory } from "./trajectory.js";
+import {
+  readTrajectory,
+  sessionTrajectory,
+  trajectoryPage,
+} from "./trajectory.js";
 
 export class NotFound extends Error {}
 
@@ -24,6 +28,12 @@ export function createApi({ store, controller, listModels, tasks }) {
   const empty = z.object({}).strict();
   const businessId = z.string().regex(/^[a-zA-Z0-9_-]+$/);
   const runId = z.string().regex(/^[a-f0-9-]+$/);
+  const pageQuery = z
+    .object({
+      before: z.coerce.number().int().min(0).optional(),
+      limit: z.coerce.number().int().min(1).max(200).default(50),
+    })
+    .strict();
   const business = (id) => {
     if (!store.getBusiness(id)) throw new NotFound("Business not found");
   };
@@ -40,35 +50,64 @@ export function createApi({ store, controller, listModels, tasks }) {
   const routes = [
     {
       method: "GET",
+      path: "/api/sessions",
+      summary: "查询持久会话列表，续接任务共享 sessionId。",
+      response:
+        "会话列表，含 id、title、cwd、turnCount、latestTaskId、status。",
+      handle: () => store.listSessions(),
+    },
+    {
+      method: "GET",
+      path: "/api/sessions/{sessionId}/trajectory",
+      params: { sessionId: runId },
+      query: pageQuery,
+      summary: "按轮次读取同一会话的完整轨迹，可向前分页。",
+      response:
+        "{sessionId,turnCount,events,total,nextBefore,limited}。每项含 turn、taskId，工具参数/结果按 callId 配对；before 使用上次 nextBefore，limit 默认 50。",
+      handle: async (p, _v, q) => {
+        const result = await sessionTrajectory(store, p.sessionId, q);
+        if (!result) throw new NotFound("Session not found");
+        return result;
+      },
+    },
+    {
+      method: "GET",
       path: "/api/tasks/{runId}/trajectory",
+      query: pageQuery,
       params: { runId },
       summary: "查看通用任务的执行轨迹。",
       response:
-        "{events,limited}，最多最近 200 条模型文本、工具参数/结果、追加指令和压缩事件；不返回内部推理。",
-      handle: (p) => {
+        "{events,total,nextBefore,limited}，模型文本、配对工具参数/结果、追加指令和压缩事件；before/limit 向前分页，不返回内部推理。",
+      handle: async (p, _v, q) => {
         const t = task(p.runId);
         const dir =
           t.result?.sessionDir ??
           (t.result?.sessionFile ? path.dirname(t.result.sessionFile) : null);
-        return readTrajectory(
+        const records = await readTrajectory(
           dir ? path.join(dir, "events.jsonl") : null,
           store.taskEvents(p.runId).filter((e) => e.type === "user_message"),
+          { all: true, status: t.status },
         );
+        return trajectoryPage(records.events, q);
       },
     },
     {
       method: "GET",
       path: "/api/runs/{runId}/trajectory",
+      query: pageQuery,
       params: { runId },
       summary: "查看业务检查执行轨迹。",
       response: "{events,limited}，没有原生日志的历史运行返回空 events。",
-      handle: (p) => {
+      handle: async (p, _v, q) => {
         const r = run(p.runId);
-        return readTrajectory(
+        const records = await readTrajectory(
           r.report?.sessionDir
             ? path.join(r.report.sessionDir, "events.jsonl")
             : null,
+          [],
+          { all: true, status: r.status },
         );
+        return trajectoryPage(records.events, q);
       },
     },
     {
@@ -266,15 +305,24 @@ export function createApi({ store, controller, listModels, tasks }) {
           },
         },
       };
-    if (route.params)
-      operation.parameters = Object.entries(route.params).map(
+    if (route.query)
+      operation.parameters = Object.entries(route.query.shape).map(
         ([name, schema]) => ({
+          name,
+          in: "query",
+          required: false,
+          schema: z.toJSONSchema(schema, { io: "input" }),
+        }),
+      );
+    if (route.params)
+      operation.parameters = Object.entries(route.params)
+        .map(([name, schema]) => ({
           name,
           in: "path",
           required: true,
           schema: z.toJSONSchema(schema, { io: "input" }),
-        }),
-      );
+        }))
+        .concat(operation.parameters ?? []);
     (paths[route.path] ??= {})[route.method.toLowerCase()] = operation;
   }
   const document = {
@@ -308,7 +356,7 @@ export function createApi({ store, controller, listModels, tasks }) {
   };
   return {
     document,
-    match(method, pathname) {
+    match(method, pathname, searchParams = new URLSearchParams()) {
       const segments = pathname.split("/");
       for (const route of routes) {
         if (method !== route.method) continue;
@@ -336,6 +384,9 @@ export function createApi({ store, controller, listModels, tasks }) {
             route.handle(
               params,
               route.input ? route.input.parse(value) : undefined,
+              route.query
+                ? route.query.parse(Object.fromEntries(searchParams))
+                : undefined,
             ),
         };
       }

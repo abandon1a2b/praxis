@@ -24,6 +24,11 @@
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.trace-turn {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 4px 0 16px;
+}
 .trajectory time,
 .trace-id {
   font-size: 12px;

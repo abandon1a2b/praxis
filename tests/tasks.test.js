@@ -91,6 +91,7 @@ test("task records retain original input; native messages and resume use persist
     await new Promise((r) => setImmediate(r));
     assert.equal(incoming[1].sessionFile, "/tmp/session.jsonl");
     assert.equal(next.parentId, task.id);
+    assert.equal(next.sessionId, task.sessionId);
     const nextWork = runner.active.get(next.id).work;
     await runner.message(next.id, { mode: "followUp", text: "Finish" });
     await nextWork;

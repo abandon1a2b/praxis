@@ -182,6 +182,7 @@ export async function executeNative(
   onSession(session);
   onEvent({
     type: "session_ready",
+    piSessionId: session.sessionId,
     sessionDir,
     sessionFile: session.sessionFile,
     activeTools: session.getActiveToolNames(),
@@ -200,6 +201,8 @@ export async function executeNative(
         "message_end",
         "auto_compaction_start",
         "auto_compaction_end",
+        "turn_start",
+        "turn_end",
       ].includes(event.type)
     ) {
       journal = journal.then(() =>
@@ -239,6 +242,7 @@ export async function executeNative(
         .filter(Boolean),
       sessionFile: session.sessionFile,
       sessionDir,
+      piSessionId: session.sessionId,
     };
   } finally {
     clearTimeout(timer);

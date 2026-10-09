@@ -151,7 +151,8 @@ test("documented POST endpoints validate empty bodies before triggering executio
   for (const [path, operations] of Object.entries(api.document.paths)) {
     const concrete = path
       .replace("{businessId}", "b")
-      .replace("{runId}", "a-b");
+      .replace("{runId}", "a-b")
+      .replace("{sessionId}", "a-b");
     for (const method of Object.keys(operations))
       assert.ok(api.match(method.toUpperCase(), concrete), `${method} ${path}`);
   }

@@ -106,7 +106,7 @@ export function App() {
           onClick={() => setTasksView(true)}
         >
           <Activity data-icon="inline-start" />
-          任务轨迹
+          会话轨迹
         </Button>
         <div className="sidebar-label">业务</div>
         <nav aria-label="业务列表">
@@ -163,7 +163,9 @@ export function App() {
                 if (tasksView)
                   await mutate(
                     (key) =>
-                      typeof key === "string" && key.startsWith("/api/tasks"),
+                      typeof key === "string" &&
+                      (key.startsWith("/api/tasks") ||
+                        key.startsWith("/api/sessions")),
                   );
               })
             }

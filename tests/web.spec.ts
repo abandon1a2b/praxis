@@ -7,11 +7,15 @@ test("task trajectory expands tool parameters and outputs on desktop and mobile"
   page.on("pageerror", (error) => errors.push(error.message));
   await page.route("**/api/**", (route) => {
     const p = new URL(route.request().url()).pathname;
-    if (p === "/api/tasks")
+    if (p === "/api/sessions")
       return route.fulfill({
         json: [
           {
             id: "a-b",
+            latestTaskId: "c-d",
+            title: "Inspect service health",
+            cwd: "/tmp/service",
+            turnCount: 2,
             status: "completed",
             createdAt: "2026-10-09T00:00:00Z",
             input: { prompt: "Inspect service health", cwd: "/tmp/service" },
@@ -20,26 +24,54 @@ test("task trajectory expands tool parameters and outputs on desktop and mobile"
           },
         ],
       });
+    if (p === "/api/tasks/c-d")
+      return route.fulfill({
+        json: {
+          input: { prompt: "Inspect service health" },
+          result: { text: "Service healthy" },
+          error: null,
+        },
+      });
+    if (
+      p.endsWith("/trajectory") &&
+      new URL(route.request().url()).searchParams.has("before")
+    )
+      return route.fulfill({
+        json: {
+          total: 3,
+          nextBefore: null,
+          limited: false,
+          events: [
+            {
+              id: "old",
+              turn: 1,
+              type: "user_message",
+              time: "2026-10-08T00:00:00Z",
+              title: "用户消息",
+              state: "user",
+              input: "Earlier inspection",
+            },
+          ],
+        },
+      });
     if (p.endsWith("/trajectory"))
       return route.fulfill({
         json: {
-          limited: false,
+          limited: true,
+          total: 3,
+          nextBefore: 1,
           events: [
             {
               id: "1",
               type: "tool_execution_start",
               time: "2026-10-09T00:00:00Z",
               title: "bash",
-              state: "started",
               input: '{"command":"check-health"}',
-            },
-            {
-              id: "2",
-              type: "tool_execution_end",
-              time: "2026-10-09T00:00:01Z",
-              title: "bash",
               state: "completed",
               output: "HTTP 200 healthy",
+              turn: 2,
+              step: 1,
+              durationMs: 1000,
             },
             {
               id: "3",
@@ -48,6 +80,8 @@ test("task trajectory expands tool parameters and outputs on desktop and mobile"
               title: "模型回复",
               state: "completed",
               output: "Service healthy",
+              turn: 2,
+              step: 2,
             },
           ],
         },
@@ -55,19 +89,26 @@ test("task trajectory expands tool parameters and outputs on desktop and mobile"
     return route.fulfill({ json: [] });
   });
   await page.goto("/");
-  await page.getByRole("button", { name: "任务轨迹", exact: true }).click();
+  await page.getByRole("button", { name: "会话轨迹", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "任务轨迹", exact: true }),
+    page.getByRole("heading", { name: "会话轨迹", exact: true }),
   ).toBeVisible();
   const entries = page.locator(".trajectory details");
-  await expect(entries).toHaveCount(3);
+  await expect(entries).toHaveCount(2);
   await entries.nth(0).locator("summary").click();
   await expect(
     page.getByText('{"command":"check-health"}', { exact: true }),
   ).toBeVisible();
-  await entries.nth(1).locator("summary").click();
   await expect(
     page.getByText("HTTP 200 healthy", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "加载更早历史", exact: true }).click();
+  await expect(entries).toHaveCount(3);
+  await expect(
+    page.getByRole("heading", { name: "轮次 1", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "轮次 2", exact: true }),
   ).toBeVisible();
   await page.screenshot({
     path: "/tmp/praxis-trajectory-desktop.png",
