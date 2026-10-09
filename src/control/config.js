@@ -18,7 +18,8 @@ export const businessSchema = z
               .refine(
                 (p) => path.isAbsolute(p),
                 "Use an absolute repository path",
-              ),
+              )
+              .describe("服务所在机器上 Git 仓库的绝对路径。"),
             include: patternList,
             exclude: patternList,
           })
@@ -29,6 +30,9 @@ export const businessSchema = z
       .refine(
         (repos) => new Set(repos.map((r) => r.name)).size === repos.length,
         "Repository names must be unique",
+      )
+      .describe(
+        "仓库名称必须唯一；include 为空检查全部 Git 跟踪文件，exclude 为排除 glob。",
       ),
     model: z
       .object({

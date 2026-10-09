@@ -4,6 +4,7 @@ import lockfile from "proper-lockfile";
 import path from "node:path";
 import { Store, Conflict } from "./control/store.js";
 import { Controller } from "./control/controller.js";
+import { createApi, NotFound } from "./control/api.js";
 
 const root = path.resolve(process.env.PRAXIS_DATA_DIR ?? ".praxis");
 await mkdir(root, { recursive: true });
@@ -27,6 +28,19 @@ for (const entry of await readdir(cacheRoot, { withFileTypes: true })) {
 const store = new Store(path.join(root, "control.sqlite"));
 store.recover();
 const controller = new Controller(store, cacheRoot);
+const api = createApi({
+  store,
+  controller,
+  async listModels() {
+    const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
+    const runtime = await ModelRuntime.create();
+    return (await runtime.getAvailable()).map(({ provider, id, name }) => ({
+      provider,
+      id,
+      name,
+    }));
+  },
+});
 const dev = process.argv.includes("--dev");
 const port = Number(process.env.PRAXIS_PORT ?? 4310);
 const vite = dev
@@ -77,54 +91,13 @@ const server = http.createServer(async (req, res) => {
         req.headers["sec-fetch-site"] === "cross-site"
       )
         return json(res, 403, { error: "Cross-site request rejected" });
-      if (req.method === "GET" && url.pathname === "/api/businesses")
-        return json(res, 200, store.listBusinesses());
-      if (req.method === "POST" && url.pathname === "/api/businesses") {
-        const { config, expectedVersion } = await body(req);
-        if (!Number.isInteger(expectedVersion) || expectedVersion < 0)
-          throw new Error("Invalid expected version");
-        return json(res, 200, store.saveBusiness(config, expectedVersion));
-      }
-      if (req.method === "GET" && url.pathname === "/api/models") {
-        const { ModelRuntime } =
-          await import("@earendil-works/pi-coding-agent");
-        const runtime = await ModelRuntime.create();
+      const endpoint = api.match(req.method, url.pathname);
+      if (endpoint)
         return json(
           res,
-          200,
-          (await runtime.getAvailable()).map((m) => ({
-            provider: m.provider,
-            id: m.id,
-            name: m.name,
-          })),
+          endpoint.status,
+          await endpoint.execute(endpoint.input ? await body(req) : undefined),
         );
-      }
-      const businessRuns = url.pathname.match(
-        /^\/api\/businesses\/([a-zA-Z0-9_-]+)\/runs$/,
-      );
-      if (businessRuns) {
-        if (!store.getBusiness(businessRuns[1]))
-          return json(res, 404, { error: "Business not found" });
-        if (req.method === "GET")
-          return json(res, 200, store.listRuns(businessRuns[1]));
-        if (req.method === "POST") {
-          await body(req);
-          return json(res, 202, controller.start(businessRuns[1]));
-        }
-      }
-      const runPath = url.pathname.match(
-        /^\/api\/runs\/([a-f0-9-]+)(\/cancel)?$/,
-      );
-      if (runPath) {
-        const run = store.getRun(runPath[1]);
-        if (!run) return json(res, 404, { error: "Run not found" });
-        if (req.method === "GET" && !runPath[2]) return json(res, 200, run);
-        if (req.method === "POST" && runPath[2]) {
-          await body(req);
-          controller.cancel(run.id);
-          return json(res, 202, { ok: true });
-        }
-      }
       return json(res, 404, { error: "Endpoint not found" });
     }
     if (vite) return vite.middlewares(req, res);
@@ -144,7 +117,11 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": `${type}; charset=utf-8` });
     res.end(data);
   } catch (error) {
-    json(res, error instanceof Conflict ? 409 : 400, { error: error.message });
+    json(
+      res,
+      error instanceof Conflict ? 409 : error instanceof NotFound ? 404 : 400,
+      { error: error.message },
+    );
   }
 });
 server.listen(port, "127.0.0.1", () =>

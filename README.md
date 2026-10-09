@@ -148,6 +148,12 @@ npm run dev
 
 ## 首个能力：业务代码检查
 
+### Agent 接入
+
+提供短 skill：[skills/praxis/SKILL.md](skills/praxis/SKILL.md)。其他 Agent 先读取 `GET /api/docs` 获取当前服务的 OpenAPI 文档及调用说明，再通过控制 API 配置业务、触发检查和查询结果。接口文档由实际路由定义和 Zod 请求校验 schema 生成，不维护独立的静态参数清单。
+
+将 `skills/praxis/` 目录放入 Agent 的技能目录即可使用；skill 不绑定业务仓库、公司或模型提供商。
+
 已实现配置驱动的只读检查运行逻辑，支持多个 Git 仓库、包含及排除规则、按代码行分批、定时间隔执行、运行锁、批次进度保存和同一代码快照的失败续跑。检查使用 Pi SDK，禁用工具、扩展及项目指令加载，业务代码作为待检查数据传入模型。
 
 ```sh

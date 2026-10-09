@@ -1,5 +1,30 @@
 import { test, expect } from "@playwright/test";
 
+test("live API documentation exposes runtime request schemas", async ({
+  request,
+}) => {
+  const response = await request.get("/api/docs");
+  expect(response.status()).toBe(200);
+  const document = await response.json();
+  expect(document.openapi).toBe("3.1.0");
+  const schema =
+    document.paths["/api/businesses"].post.requestBody.content[
+      "application/json"
+    ].schema;
+  expect(schema.properties.config.properties.intervalSeconds.minimum).toBe(60);
+  expect(document["x-agent-guide"].terminalStatuses).toContain("cancelled");
+  expect(
+    (
+      await request.post("/api/businesses", {
+        data: { config: {}, expectedVersion: -1 },
+      })
+    ).status(),
+  ).toBe(400);
+  expect((await request.get("/api/businesses/missing/runs")).status()).toBe(
+    404,
+  );
+});
+
 test("local API rejects cross-origin writes and private file requests", async ({
   request,
 }) => {
