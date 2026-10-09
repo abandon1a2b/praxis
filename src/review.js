@@ -1,7 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, rename, lstat } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  writeFile,
+  rename,
+  lstat,
+  realpath,
+} from "node:fs/promises";
 import path from "node:path";
 
 const execute = promisify(execFile);
@@ -58,6 +65,7 @@ export async function snapshot(config) {
     skipped = [],
     revisions = {};
   for (const repo of config.repositories) {
+    const repositoryRoot = await realpath(repo.path);
     const git = async (args) =>
       (
         await execute(
@@ -110,7 +118,12 @@ export async function snapshot(config) {
         skipped.push({ file: id, reason: "not a regular file" });
         continue;
       }
-      const buffer = await readFile(full);
+      const canonical = await realpath(full);
+      if (!canonical.startsWith(repositoryRoot + path.sep)) {
+        skipped.push({ file: id, reason: "resolved path outside repository" });
+        continue;
+      }
+      const buffer = await readFile(canonical);
       if (buffer.includes(0)) {
         skipped.push({ file: id, reason: "binary" });
         continue;
@@ -153,9 +166,9 @@ export function batches(files, limit) {
     for (const line of lines) {
       if (line.length > limit)
         throw new Error(`Line exceeds batch limit: ${file.id}`);
-      if (length + line.length + 1 > limit) flush();
+      if (length + line.length + (chunk.length ? 1 : 0) > limit) flush();
       chunk.push(line);
-      length += line.length + 1;
+      length += line.length + (chunk.length > 1 ? 1 : 0);
     }
     flush();
   }

@@ -1,10 +1,76 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import {
+  mkdtemp,
+  writeFile,
+  readFile,
+  rm,
+  mkdir,
+  symlink,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
-import { batches, validateFindings, runReview } from "../src/review.js";
+import {
+  batches,
+  validateFindings,
+  runReview,
+  snapshot,
+} from "../src/review.js";
+
+test("exact-limit lines remain within batch character limits", () => {
+  const result = batches(
+    [{ id: "r/a.js", text: "a".repeat(1000) + "\nb" }],
+    1000,
+  );
+  assert.equal(result.length, 2);
+  for (const batch of result)
+    assert.ok(
+      batch.reduce((sum, part) => sum + part.content.length, 0) <= 1000,
+    );
+  assert.deepEqual(
+    result.flat().map((p) => [p.start, p.end]),
+    [
+      [1, 1],
+      [2, 2],
+    ],
+  );
+});
+
+test("tracked paths through replaced parent directories cannot escape repository", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-symlink-"));
+  const repo = path.join(root, "repo"),
+    outside = path.join(root, "outside");
+  try {
+    await mkdir(path.join(repo, "dir"), { recursive: true });
+    await mkdir(outside);
+    await writeFile(path.join(repo, "dir/a.js"), "safe");
+    await writeFile(path.join(outside, "a.js"), "private");
+    const git = (args) => execFileSync("git", ["-C", repo, ...args]);
+    git(["init", "-q"]);
+    git(["add", "."]);
+    git([
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-qm",
+      "fixture",
+    ]);
+    await rm(path.join(repo, "dir"), { recursive: true });
+    await symlink(outside, path.join(repo, "dir"));
+    const input = await snapshot({ repositories: [{ name: "r", path: repo }] });
+    assert.equal(input.files.length, 0);
+    assert.ok(
+      input.skipped.some(
+        (s) => s.reason === "resolved path outside repository",
+      ),
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("chunks retain absolute line coverage and reject invented evidence", () => {
   const parts = batches(
