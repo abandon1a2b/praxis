@@ -9,10 +9,38 @@
   },
   "scripts": {
     "pi": "pi",
-    "start": "node src/main.js",
-    "test": "node --test"
+    "start": "node src/server.js",
+    "review": "node src/main.js",
+    "dev": "node src/server.js --dev",
+    "serve": "node src/server.js",
+    "build": "tsc && vite build",
+    "test": "node --test",
+    "test:ui": "playwright test"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0"
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "better-sqlite3": "13.0.3",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "cn": "0.4.0",
+    "lucide-react": "1.53.0",
+    "proper-lockfile": "4.1.2",
+    "radix-ui": "1.7.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "swr": "2.5.1",
+    "tailwind-merge": "3.7.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "5.2.0",
+    "prettier": "3.9.9",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "7.3.7"
   }
 }

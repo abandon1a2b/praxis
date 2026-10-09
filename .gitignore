@@ -4,3 +4,4 @@ node_modules/
 .DS_Store
 .praxis/
 praxis.local.json
+dist/
