@@ -73,7 +73,9 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
       ) : null}
       <div className="run-facts">
         <span>
-          批次 {report?.completed.length ?? 0} / {report?.totalBatches ?? "—"}
+          {report?.engine === "pi-native"
+            ? `工具调用 ${report.toolCalls ?? 0}`
+            : `批次 ${report?.completed.length ?? 0} / ${report?.totalBatches ?? "—"}`}
         </span>
         <span>{report?.findings.length ?? 0} 个待复核问题</span>
         <span>
@@ -172,7 +174,26 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
                 {revision.dirty ? "工作区有改动" : "工作区干净"}
               </p>
             ))}
-            <h3>已检查范围</h3>
+            {report?.coverage ? (
+              <>
+                <h3>读取记录</h3>
+                <p>
+                  范围内 {report.coverage.totalFiles} 个文件 · 读取{" "}
+                  {new Set(report.coverage.reads.map((r) => r.file)).size}{" "}
+                  个文件 · 全量覆盖未验证
+                </p>
+                {report.coverage.reads.map((r, i) => (
+                  <p key={i}>
+                    <code>
+                      {r.file}:{r.offset}
+                    </code>
+                    <span>{r.truncated ? "输出有截断" : "读取成功"}</span>
+                  </p>
+                ))}
+              </>
+            ) : (
+              <h3>已检查范围</h3>
+            )}
             {report?.completed
               .flatMap((batch) => batch.ranges)
               .map((range, i) => (

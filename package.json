@@ -15,7 +15,8 @@
     "serve": "node src/server.js",
     "build": "tsc && vite build",
     "test": "node --test",
-    "test:ui": "playwright test"
+    "test:ui": "playwright test",
+    "compare:harnesses": "node scripts/compare-harnesses.js"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0",

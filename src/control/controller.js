@@ -1,7 +1,9 @@
 import { runReview } from "../review.js";
 import { executionConfig } from "./config.js";
-import { createPiHarness } from "../harness/pi.js";
 import { Conflict } from "./store.js";
+import { runAgentReview } from "../agent-review.js";
+import { nativeHarness } from "../harness/native.js";
+import path from "node:path";
 
 function deepFreeze(value) {
   if (value && typeof value === "object") {
@@ -12,7 +14,7 @@ function deepFreeze(value) {
 }
 
 export class Controller {
-  constructor(store, cacheRoot, harnessFactory = createPiHarness) {
+  constructor(store, cacheRoot, harnessFactory) {
     this.store = store;
     this.cacheRoot = cacheRoot;
     this.harnessFactory = harnessFactory;
@@ -25,21 +27,36 @@ export class Controller {
     const run = this.store.createRun(id, trigger);
     const abort = new AbortController();
     const config = deepFreeze(executionConfig(structuredClone(run.config)));
+    let timedOut = false;
+    const deadline = this.harnessFactory
+      ? null
+      : setTimeout(() => {
+          timedOut = true;
+          abort.abort(new Error("Review exceeded total timeout"));
+        }, config.timeoutSeconds * 1000);
     const task = Promise.resolve().then(async () => {
       try {
         if (abort.signal.aborted) throw new Error("Run cancelled");
-        const review = this.harnessFactory(abort.signal);
-        const report = await runReview(
-          config,
-          this.cacheRoot,
-          (batch, input, context) =>
-            review(
-              structuredClone(batch),
-              structuredClone(input),
-              structuredClone(context),
-            ),
-          (report) => this.store.progress(run.id, report),
-        );
+        const review = this.harnessFactory?.(abort.signal);
+        const report = review
+          ? await runReview(
+              config,
+              this.cacheRoot,
+              (batch, input, context) =>
+                review(
+                  structuredClone(batch),
+                  structuredClone(input),
+                  structuredClone(context),
+                ),
+              (report) => this.store.progress(run.id, report),
+            )
+          : await runAgentReview(
+              config,
+              path.join(this.cacheRoot, "native", run.id),
+              nativeHarness(abort.signal),
+              (report) => this.store.progress(run.id, report),
+              abort.signal,
+            );
         this.store.finish(
           run.id,
           abort.signal.aborted ? "cancelled" : "completed",
@@ -48,11 +65,12 @@ export class Controller {
       } catch (error) {
         this.store.finish(
           run.id,
-          abort.signal.aborted ? "cancelled" : "failed",
+          timedOut ? "failed" : abort.signal.aborted ? "cancelled" : "failed",
           null,
-          error.message,
+          timedOut ? "Review exceeded total timeout" : error.message,
         );
       } finally {
+        clearTimeout(deadline);
         this.active.delete(run.id);
       }
     });

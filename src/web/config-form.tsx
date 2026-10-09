@@ -343,7 +343,7 @@ export function ConfigForm({
                 />
               </Field>
               <Field>
-                <FieldLabel htmlFor="timeout">单批超时（秒）</FieldLabel>
+                <FieldLabel htmlFor="timeout">检查总时限（秒）</FieldLabel>
                 <Input
                   id="timeout"
                   type="number"
@@ -353,20 +353,6 @@ export function ConfigForm({
                   value={draft.timeoutSeconds}
                   onChange={(e) =>
                     update("timeoutSeconds", e.target.valueAsNumber)
-                  }
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor="batch">单批字符上限</FieldLabel>
-                <Input
-                  id="batch"
-                  type="number"
-                  required
-                  min={1000}
-                  max={100000}
-                  value={draft.batchCharacters}
-                  onChange={(e) =>
-                    update("batchCharacters", e.target.valueAsNumber)
                   }
                 />
               </Field>

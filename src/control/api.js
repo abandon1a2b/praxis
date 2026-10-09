@@ -93,7 +93,7 @@ export function createApi({ store, controller, listModels }) {
       params: { runId },
       summary: "读取运行状态、配置快照与完整报告。",
       response:
-        "运行对象；config 是本次运行的固定配置，report 初始可为 null，之后包含 completed、totalBatches、findings、skipped、revisions。findings 包含 file、line、severity、title、trigger、explanation、evidence。",
+        "运行对象；config 是本次运行的固定配置，report 初始可为 null，之后包含 completed、totalBatches、findings、skipped、revisions。原生模式还有 engine=pi-native、toolCalls、coverage（totalFiles、reads、fullyVerified=false）、sessionDir 与 usage。completed/totalBatches 在原生模式代表会话阶段而非文件覆盖。findings 包含 file、line、severity、title、trigger、explanation、evidence。",
       handle: (p) => run(p.runId),
     },
     {
@@ -166,8 +166,8 @@ export function createApi({ store, controller, listModels }) {
       ],
       terminalStatuses: ["completed", "failed", "cancelled", "interrupted"],
       semantics: [
-        "同一时刻全局最多一个检查；相同代码和执行配置可能复用检查缓存，但每次触发有独立运行记录。",
-        "检查 completed 只表示批次处理结束；报告问题仍待复核，当前不执行测试或修复代码。",
+        "同一时刻全局最多一个检查；默认原生路径每次触发创建独立会话与运行记录，不自动复用旧分批缓存。",
+        "默认使用 Pi 原生 Agent 会话与 read/grep/find/ls 工具，按需探索固定代码快照，不再强制字符分批。completed 只表示本次会话结束；coverage.reads 是读取记录，不代表全量语义覆盖。报告问题仍待复核，当前不执行测试或修复代码。",
         "仓库路径必须是服务所在机器的绝对路径，仓库名称必须唯一；include 为空扫描全部 Git 跟踪文件，未跟踪文件不检查。",
         "更新配置只影响未来运行。取消当前运行须单独调用 cancel；关闭 enabled 不取消活跃运行。",
         "断线后先查询运行列表确认是否已创建，避免直接重复触发。不要直接修改 SQLite、缓存、Pi 凭据或源代码来配置业务。",

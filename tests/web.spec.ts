@@ -1,5 +1,82 @@
 import { test, expect } from "@playwright/test";
 
+test("native coverage distinguishes file access from full semantic verification", async ({
+  page,
+}) => {
+  const config = {
+    id: "native",
+    name: "Native review",
+    enabled: false,
+    repositories: [
+      { name: "repo", path: "/tmp/repo", include: [], exclude: [] },
+    ],
+    model: { provider: "test", id: "model", thinking: "low" },
+    intervalSeconds: 86400,
+    batchCharacters: 40000,
+    timeoutSeconds: 180,
+    focus: "Find defects",
+  };
+  const run = {
+    id: "c-d",
+    businessId: "native",
+    version: 1,
+    trigger: "manual",
+    status: "completed",
+    createdAt: "2026-10-09T00:00:00Z",
+    finishedAt: "2026-10-09T00:01:00Z",
+    config,
+    error: null,
+    report: {
+      engine: "pi-native",
+      toolCalls: 4,
+      totalBatches: 1,
+      completed: [{ index: 0, ranges: [] }],
+      findings: [],
+      skipped: [],
+      revisions: {},
+      coverage: {
+        totalFiles: 2,
+        fullyVerified: false,
+        reads: [{ file: "repo/a.js", offset: 1, limit: 10, truncated: false }],
+      },
+    },
+  };
+  await page.route("**/api/**", (route) => {
+    const p = new URL(route.request().url()).pathname;
+    return route.fulfill({
+      json:
+        p === "/api/businesses"
+          ? [{ ...config, version: 1, nextAt: null }]
+          : p === "/api/models"
+            ? []
+            : p.endsWith("/runs")
+              ? [
+                  {
+                    ...run,
+                    report: {
+                      completedBatches: 1,
+                      totalBatches: 1,
+                      findingCount: 0,
+                    },
+                  },
+                ]
+              : run,
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "覆盖范围", exact: true }).click();
+  await expect(
+    page.getByText("范围内 2 个文件 · 读取 1 个文件 · 全量覆盖未验证", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("工具调用 4", { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/praxis-native-coverage.png",
+    fullPage: true,
+  });
+});
+
 test("coverage shows original columns for fragments of an oversized line", async ({
   page,
 }) => {

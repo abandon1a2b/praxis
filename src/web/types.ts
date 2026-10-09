@@ -29,6 +29,18 @@ export type Finding = {
   evidence: string;
 };
 export type Report = {
+  engine?: string;
+  toolCalls?: number;
+  coverage?: {
+    totalFiles: number;
+    fullyVerified: boolean;
+    reads: {
+      file: string;
+      offset: number;
+      limit: number | null;
+      truncated: boolean;
+    }[];
+  };
   completed: {
     index: number;
     ranges: {

@@ -7,6 +7,7 @@
 ## 专题索引
 
 - [代码检查分批边界](code-review-batching.md)：长行、字符预算、原始位置、Unicode 与缓存兼容问题。
+- [原生 Agent 接入边界](native-agent-integration.md)：工具启用、跨程序输出契约和原生执行能力验证。
 
 ## 记录内容
 

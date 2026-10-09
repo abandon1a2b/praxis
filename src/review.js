@@ -60,11 +60,12 @@ export function matches(file, patterns) {
   return patterns.some((pattern) => path.matchesGlob(file, pattern));
 }
 
-export async function snapshot(config) {
+export async function snapshot(config, signal) {
   const files = [],
     skipped = [],
     revisions = {};
   for (const repo of config.repositories) {
+    signal?.throwIfAborted();
     const repositoryRoot = await realpath(repo.path);
     const git = async (args) =>
       (
@@ -80,6 +81,7 @@ export async function snapshot(config) {
           ],
           {
             maxBuffer: 32 * 1024 * 1024,
+            signal,
           },
         )
       ).stdout;
@@ -92,6 +94,7 @@ export async function snapshot(config) {
       .filter(Boolean)
       .sort();
     for (const name of names) {
+      signal?.throwIfAborted();
       const id = `${repo.name}/${name}`;
       if (
         (repo.include?.length && !matches(name, repo.include)) ||

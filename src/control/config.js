@@ -44,8 +44,20 @@ export const businessSchema = z
       })
       .strict(),
     intervalSeconds: z.number().int().min(60).max(2147483).default(86400),
-    batchCharacters: z.number().int().min(1000).max(100000).default(40000),
-    timeoutSeconds: z.number().int().min(1).max(3600).default(180),
+    batchCharacters: z
+      .number()
+      .int()
+      .min(1000)
+      .max(100000)
+      .default(40000)
+      .describe("仅保留给旧分批调试入口；原生 Agent 默认路径不使用。"),
+    timeoutSeconds: z
+      .number()
+      .int()
+      .min(1)
+      .max(3600)
+      .default(180)
+      .describe("默认原生 Agent 检查的总时限，包含扫描及模型执行。"),
     focus: z.string().trim().min(1).max(4000),
   })
   .strict();
