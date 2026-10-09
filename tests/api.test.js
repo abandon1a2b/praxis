@@ -1,6 +1,30 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createApi, NotFound } from "../src/control/api.js";
+import { businessSchema } from "../src/control/config.js";
+
+test("business configuration supports a workspace with more than twenty repositories", () => {
+  const config = {
+    id: "workspace",
+    name: "Workspace",
+    model: { provider: "test", id: "model" },
+    focus: "Find defects",
+    repositories: Array.from({ length: 26 }, (_, i) => ({
+      name: `repo-${i}`,
+      path: `/tmp/workspace/repo-${i}`,
+    })),
+  };
+  assert.equal(businessSchema.parse(config).repositories.length, 26);
+  assert.throws(() =>
+    businessSchema.parse({
+      ...config,
+      repositories: Array.from({ length: 101 }, (_, i) => ({
+        name: `repo-${i}`,
+        path: `/tmp/workspace/repo-${i}`,
+      })),
+    }),
+  );
+});
 
 test("live docs use the same schemas and endpoints as runtime dispatch", async () => {
   let saved;

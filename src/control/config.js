@@ -26,7 +26,7 @@ export const businessSchema = z
           .strict(),
       )
       .min(1)
-      .max(20)
+      .max(100)
       .refine(
         (repos) => new Set(repos.map((r) => r.name)).size === repos.length,
         "Repository names must be unique",
