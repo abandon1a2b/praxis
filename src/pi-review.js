@@ -66,7 +66,7 @@ export async function piReview(batch, config, context) {
         context,
         batch: numberedBatch,
         output:
-          'Return only JSON {"findings":[{"file":"exact supplied file id","line":1,"severity":"high|medium|low","title":"...","trigger":"concrete conditions","explanation":"impact and reasoning","evidence":"exact nonempty substring at cited line, excluding the numeric prefix"}]}. Use explicit numeric line prefixes as absolute line numbers. Empty findings is valid. Do not assert execution or full-business verification.',
+          'Return only JSON {"findings":[{"file":"exact supplied file id","line":1,"severity":"high|medium|low","title":"...","trigger":"concrete conditions","explanation":"impact and reasoning","evidence":"exact nonempty substring at cited line, excluding the numeric prefix"}]}. Use explicit numeric line prefixes as absolute line numbers. Parts with startColumn/endColumn contain only a fragment of one original line; columns are 1-based UTF-16 positions, inclusive. Do not treat fragment boundaries as syntax errors or assume missing context. Empty findings is valid. Do not assert execution or full-business verification.',
       }),
     );
     if (timedOut) throw new Error("Review timed out");

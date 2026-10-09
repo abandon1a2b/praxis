@@ -37,6 +37,58 @@ test("exact-limit lines remain within batch character limits", () => {
   );
 });
 
+test("oversized lines preserve all characters and following line numbers", () => {
+  const longLine = "x".repeat(218825);
+  const parts = batches(
+    [{ id: "r/a.php", text: `before\n${longLine}\nafter` }],
+    40000,
+  ).flat();
+  const fragments = parts.filter((p) => p.startColumn !== undefined);
+  assert.equal(fragments.length, 6);
+  assert.equal(fragments.map((p) => p.content).join(""), longLine);
+  assert.deepEqual(
+    fragments.map((p) => [p.start, p.end]),
+    Array(6).fill([2, 2]),
+  );
+  assert.equal(fragments[0].startColumn, 1);
+  assert.equal(fragments.at(-1).endColumn, longLine.length);
+  assert.equal(parts.at(-1).start, 3);
+  for (const batch of batches(
+    [{ id: "r/a.php", text: `before\n${longLine}\nafter` }],
+    40000,
+  )) {
+    assert.ok(batch.reduce((n, p) => n + p.content.length, 0) <= 40000);
+  }
+  const finding = {
+    file: "r/a.php",
+    line: 2,
+    severity: "low",
+    title: "x",
+    trigger: "x",
+    explanation: "x",
+    evidence: "xxx",
+  };
+  assert.equal(
+    validateFindings(JSON.stringify({ findings: [finding] }), [
+      fragments.at(-1),
+    ]).length,
+    1,
+  );
+});
+
+test("long-line fragments do not split Unicode surrogate pairs", () => {
+  const text = "aaa😀bbb😀";
+  const parts = batches([{ id: "r/unicode.js", text }], 4).flat();
+  assert.equal(parts.map((p) => p.content).join(""), text);
+  assert.ok(
+    parts.every(
+      (p) =>
+        !/[\uD800-\uDBFF]$/.test(p.content) &&
+        !/^[\uDC00-\uDFFF]/.test(p.content),
+    ),
+  );
+});
+
 test("tracked paths through replaced parent directories cannot escape repository", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "praxis-symlink-"));
   const repo = path.join(root, "repo"),

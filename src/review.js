@@ -139,6 +139,15 @@ export function batches(files, limit) {
   const result = [];
   let batch = [],
     size = 0;
+  const add = (part) => {
+    if (size + part.content.length > limit && batch.length) {
+      result.push(batch);
+      batch = [];
+      size = 0;
+    }
+    batch.push(part);
+    size += part.content.length;
+  };
   for (const file of files) {
     const lines = file.text.split("\n");
     let chunk = [],
@@ -152,20 +161,38 @@ export function batches(files, limit) {
         end: start + chunk.length - 1,
         content: chunk.join("\n"),
       };
-      if (size + length > limit && batch.length) {
-        result.push(batch);
-        batch = [];
-        size = 0;
-      }
-      batch.push(part);
-      size += length;
+      add(part);
       start += chunk.length;
       chunk = [];
       length = 0;
     };
     for (const line of lines) {
-      if (line.length > limit)
-        throw new Error(`Line exceeds batch limit: ${file.id}`);
+      if (line.length > limit) {
+        flush();
+        for (let offset = 0; offset < line.length;) {
+          let end = Math.min(offset + limit, line.length);
+          // Keep UTF-16 surrogate pairs together at fragment boundaries.
+          if (
+            end < line.length &&
+            /[\uD800-\uDBFF]/.test(line[end - 1]) &&
+            /[\uDC00-\uDFFF]/.test(line[end])
+          )
+            end--;
+          if (end === offset)
+            throw new Error("Batch limit too small for Unicode character");
+          add({
+            file: file.id,
+            start,
+            end: start,
+            startColumn: offset + 1,
+            endColumn: end,
+            content: line.slice(offset, end),
+          });
+          offset = end;
+        }
+        start++;
+        continue;
+      }
       if (length + line.length + (chunk.length ? 1 : 0) > limit) flush();
       chunk.push(line);
       length += line.length + (chunk.length > 1 ? 1 : 0);
@@ -230,7 +257,7 @@ export async function runReview(
       throw new Error("No reviewable tracked files in configured scope");
     const chunks = batches(input.files, config.batchCharacters);
     const hash = createHash("sha256")
-      .update(JSON.stringify({ config, input }))
+      .update(JSON.stringify({ reviewFormatVersion: 2, config, input }))
       .digest("hex");
     const stateFile = path.join(dir, `${hash}.json`);
     let state;

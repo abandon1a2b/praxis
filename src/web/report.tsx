@@ -178,7 +178,10 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
               .map((range, i) => (
                 <p key={i}>
                   <code>
-                    {range.file}:{range.start}–{range.end}
+                    {range.file}:{range.start}
+                    {range.startColumn !== undefined
+                      ? `:${range.startColumn}–${range.endColumn} 列`
+                      : `–${range.end}`}
                   </code>
                 </p>
               ))}

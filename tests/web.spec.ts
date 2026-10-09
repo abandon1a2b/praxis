@@ -1,5 +1,84 @@
 import { test, expect } from "@playwright/test";
 
+test("coverage shows original columns for fragments of an oversized line", async ({
+  page,
+}) => {
+  const config = {
+    id: "fragment",
+    name: "Fragment review",
+    enabled: false,
+    repositories: [
+      { name: "repo", path: "/tmp/repo", include: [], exclude: [] },
+    ],
+    model: { provider: "test", id: "model", thinking: "low" },
+    intervalSeconds: 86400,
+    batchCharacters: 40000,
+    timeoutSeconds: 180,
+    focus: "Find defects",
+  };
+  const run = {
+    id: "a-b",
+    businessId: config.id,
+    version: 1,
+    trigger: "manual",
+    status: "completed",
+    createdAt: "2026-10-09T00:00:00Z",
+    finishedAt: "2026-10-09T00:01:00Z",
+    config,
+    error: null,
+    report: {
+      totalBatches: 1,
+      completed: [
+        {
+          index: 0,
+          ranges: [
+            {
+              file: "repo/a.php",
+              start: 68,
+              end: 68,
+              startColumn: 1,
+              endColumn: 40000,
+            },
+          ],
+        },
+      ],
+      findings: [],
+      skipped: [],
+      revisions: {},
+    },
+  };
+  await page.route("**/api/**", (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    const data =
+      pathname === "/api/businesses"
+        ? [{ ...config, version: 1, nextAt: null }]
+        : pathname === "/api/models"
+          ? []
+          : pathname.endsWith("/runs")
+            ? [
+                {
+                  ...run,
+                  report: {
+                    completedBatches: 1,
+                    totalBatches: 1,
+                    findingCount: 0,
+                  },
+                },
+              ]
+            : run;
+    return route.fulfill({ json: data });
+  });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "覆盖范围", exact: true }).click();
+  await expect(
+    page.getByText("repo/a.php:68:1–40000 列", { exact: true }),
+  ).toBeVisible();
+  await page.screenshot({
+    path: "/tmp/praxis-long-line-coverage.png",
+    fullPage: true,
+  });
+});
+
 test("live API documentation exposes runtime request schemas", async ({
   request,
 }) => {

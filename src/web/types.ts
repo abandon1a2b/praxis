@@ -31,7 +31,13 @@ export type Finding = {
 export type Report = {
   completed: {
     index: number;
-    ranges: { file: string; start: number; end: number }[];
+    ranges: {
+      file: string;
+      start: number;
+      end: number;
+      startColumn?: number;
+      endColumn?: number;
+    }[];
   }[];
   totalBatches: number;
   findings: Finding[];
