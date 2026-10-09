@@ -1,5 +1,151 @@
 import { test, expect } from "@playwright/test";
 
+test("inspection configuration produces measured, searchable memory and an incident", async ({
+  page,
+}) => {
+  const id = `health-${Date.now()}`,
+    errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("/");
+  await page.getByRole("button", { name: "巡检与记忆", exact: true }).click();
+  await page.getByRole("button", { name: "新检查项", exact: true }).click();
+  await page.getByLabel("检查名称", { exact: true }).fill("Health UI");
+  await page.getByLabel("检查标识", { exact: true }).fill(id);
+  await page.getByLabel("记忆范围", { exact: true }).fill(id);
+  await page
+    .getByLabel("请求地址", { exact: true })
+    .fill("http://127.0.0.1:4311/api/docs");
+  await page.getByRole("button", { name: "保存检查项", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "立即巡检", exact: true }),
+  ).toBeEnabled();
+  await page.getByRole("button", { name: "立即巡检", exact: true }).click();
+  await expect(page.getByText("正常", { exact: true })).toBeVisible();
+  await page.locator(".memory-evidence summary").first().click();
+  await expect(page.locator(".memory-evidence pre").first()).toContainText(
+    '"status": 200',
+  );
+  await page.getByLabel("检索观察记忆", { exact: true }).fill("HTTP");
+  await expect(page.locator(".memory-evidence")).toHaveCount(1);
+  await page.getByRole("tab", { name: "检查配置", exact: true }).click();
+  await page.getByLabel("期望状态码", { exact: true }).fill("503");
+  await page.getByRole("button", { name: "保存检查项", exact: true }).click();
+  await page.getByRole("button", { name: "立即巡检", exact: true }).click();
+  await expect(page.getByText("异常", { exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "异常历史", exact: true }).click();
+  await expect(page.getByText("仍异常", { exact: true })).toBeVisible();
+  await page.waitForTimeout(200);
+  await page.screenshot({
+    path: "/tmp/praxis-inspections-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("tab", { name: "检查配置", exact: true }).click();
+  await expect(page.getByLabel("检查名称", { exact: true })).toBeVisible();
+  await page.waitForTimeout(200);
+  await page.screenshot({
+    path: "/tmp/praxis-inspections-mobile.png",
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("long trajectory renders only the viewport and preserves its anchor when prepending history", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.route("**/api/**", (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/sessions")
+      return route.fulfill({
+        json: [
+          {
+            id: "a-b",
+            latestTaskId: "c-d",
+            title: "Long history",
+            cwd: "/tmp",
+            createdAt: "2026-10-09T00:00:00Z",
+            status: "completed",
+            turnCount: 1,
+          },
+        ],
+      });
+    if (url.pathname === "/api/tasks/c-d")
+      return route.fulfill({
+        json: { input: { prompt: "Long history" }, result: null, error: null },
+      });
+    if (url.pathname.endsWith("/trajectory")) {
+      const end = Number(url.searchParams.get("before") ?? 500),
+        start = Math.max(0, end - 50);
+      return route.fulfill({
+        json: {
+          total: 500,
+          nextBefore: start > 0 ? start : null,
+          limited: start > 0,
+          events: Array.from({ length: end - start }, (_, i) => ({
+            id: String(start + i),
+            title: `read-${start + i}`,
+            type: "tool_execution_start",
+            state: "completed",
+            turn: 1,
+            time: null,
+            input: '{"path":"file.js"}',
+            output: "file content",
+          })),
+        },
+      });
+    }
+    return route.fulfill({ json: [] });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "会话轨迹", exact: true }).click();
+  await expect(page.locator(".trajectory")).toContainText("50 条记录");
+  await page.locator(".trace-scroll").evaluate((node) => (node.scrollTop = 0));
+  await expect(page.locator('[data-record-id="450"]')).toBeVisible();
+  await page.getByRole("button", { name: "加载更早历史", exact: true }).click();
+  await expect(page.locator(".trajectory")).toContainText("100 条记录");
+  await expect
+    .poll(() =>
+      page.locator(".trace-scroll").evaluate((node) => {
+        const top = node.getBoundingClientRect().top;
+        return [...node.querySelectorAll("[data-record-id]")]
+          .find((row) => row.getBoundingClientRect().bottom > top + 1)
+          ?.getAttribute("data-record-id");
+      }),
+    )
+    .toBe("450");
+  for (let size = 150; size <= 500; size += 50) {
+    await page
+      .getByRole("button", { name: "加载更早历史", exact: true })
+      .click();
+    await expect(page.locator(".trajectory")).toContainText(`${size} 条记录`);
+  }
+  expect(await page.locator(".trajectory details").count()).toBeLessThan(30);
+  await page.locator(".trace-scroll").evaluate((node) => (node.scrollTop = 0));
+  await page.locator('[data-record-id="0"] summary').click();
+  await expect(page.locator('[data-record-id="0"] pre').first()).toBeVisible();
+  await page
+    .locator(".trace-scroll")
+    .evaluate((node) => (node.scrollTop = node.scrollHeight));
+  await page.locator('[data-record-id="499"]').waitFor();
+  await page.locator(".trace-scroll").evaluate((node) => (node.scrollTop = 0));
+  await expect(page.locator('[data-record-id="0"] details')).toHaveAttribute(
+    "open",
+    "",
+  );
+  await page.screenshot({
+    path: "/tmp/praxis-virtual-trajectory.png",
+    fullPage: true,
+  });
+  expect(errors).toEqual([]);
+});
+
 test("task trajectory expands tool parameters and outputs on desktop and mobile", async ({
   page,
 }) => {

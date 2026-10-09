@@ -29,6 +29,7 @@ import { ReportView } from "./report";
 import { request, time, statusLabels } from "./api";
 import type { Business, Model, Run, RunSummary } from "./types";
 import { TaskHistory } from "./task-history";
+import { Inspections } from "./inspections";
 
 export function App() {
   const { mutate } = useSWRConfig();
@@ -45,6 +46,7 @@ export function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [tasksView, setTasksView] = useState(false);
+  const [inspectionsView, setInspectionsView] = useState(false);
   const business =
     businesses?.find((b) => b.id === selected) ??
     (selected === null ? businesses?.[0] : undefined);
@@ -103,10 +105,23 @@ export function App() {
         </a>
         <Button
           variant={tasksView ? "secondary" : "ghost"}
-          onClick={() => setTasksView(true)}
+          onClick={() => {
+            setTasksView(true);
+            setInspectionsView(false);
+          }}
         >
           <Activity data-icon="inline-start" />
           会话轨迹
+        </Button>
+        <Button
+          variant={inspectionsView ? "secondary" : "ghost"}
+          onClick={() => {
+            setInspectionsView(true);
+            setTasksView(false);
+          }}
+        >
+          <ListChecks data-icon="inline-start" />
+          巡检与记忆
         </Button>
         <div className="sidebar-label">业务</div>
         <nav aria-label="业务列表">
@@ -115,10 +130,15 @@ export function App() {
               key={b.id}
               className={cn(
                 "business-nav",
-                !tasksView && !creating && business?.id === b.id && "selected",
+                !tasksView &&
+                  !inspectionsView &&
+                  !creating &&
+                  business?.id === b.id &&
+                  "selected",
               )}
               onClick={() => {
                 setTasksView(false);
+                setInspectionsView(false);
                 setSelected(b.id);
                 setCreating(false);
                 setRunId(null);
@@ -136,6 +156,7 @@ export function App() {
           variant="outline"
           onClick={() => {
             setTasksView(false);
+            setInspectionsView(false);
             setCreating(true);
             setRunId(null);
             setError("");
@@ -151,7 +172,9 @@ export function App() {
       </aside>
       <main>
         <header className="topbar">
-          <span>{tasksView ? "执行记录" : "代码检查"}</span>
+          <span>
+            {tasksView ? "执行记录" : inspectionsView ? "巡检" : "代码检查"}
+          </span>
           <Badge variant="outline">{tasksView ? "任务" : "只读"}</Badge>
           <Button
             variant="ghost"
@@ -166,6 +189,16 @@ export function App() {
                       typeof key === "string" &&
                       (key.startsWith("/api/tasks") ||
                         key.startsWith("/api/sessions")),
+                  );
+                if (inspectionsView)
+                  await mutate(
+                    (key) =>
+                      typeof key === "string" &&
+                      [
+                        "/api/inspections",
+                        "/api/memory",
+                        "/api/incidents",
+                      ].some((prefix) => key.startsWith(prefix)),
                   );
               })
             }
@@ -182,7 +215,9 @@ export function App() {
               </AlertDescription>
             </Alert>
           ) : null}
-          {tasksView ? (
+          {inspectionsView ? (
+            <Inspections />
+          ) : tasksView ? (
             <TaskHistory />
           ) : !businesses && !loadError ? (
             <>

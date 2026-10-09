@@ -1,6 +1,8 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { businessSchema } from "./config.js";
+import { TrajectoryIndex } from "./trajectory-index.js";
+import { InspectionStore } from "./inspections.js";
 
 export class Conflict extends Error {}
 
@@ -29,6 +31,11 @@ export class Store {
     );
     this.db.exec(
       "CREATE INDEX IF NOT EXISTS tasks_by_session ON tasks(session_id,created_at)",
+    );
+    this.trajectoryIndex = new TrajectoryIndex(this.db);
+    this.inspections = new InspectionStore(this.db);
+    this.db.exec(
+      "CREATE INDEX IF NOT EXISTS task_events_by_task ON task_events(task_id,seq)",
     );
   }
   listBusinesses() {
@@ -277,6 +284,14 @@ export class Store {
       .all(id)
       .reverse()
       .map((r) => ({ seq: r.seq, ...JSON.parse(r.event) }));
+  }
+  taskContextEvents(id) {
+    return this.db
+      .prepare(
+        "SELECT seq,event FROM task_events WHERE task_id=? AND json_extract(event,'$.type') IN ('user_message','memory_context') ORDER BY seq",
+      )
+      .all(id)
+      .map((row) => ({ seq: row.seq, ...JSON.parse(row.event) }));
   }
   finishTask(id, status, result, error = null) {
     this.db

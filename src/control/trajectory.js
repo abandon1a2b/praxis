@@ -72,6 +72,13 @@ export function traceEvent(event, index) {
       state: event.mode,
       input: clip(event.text),
     };
+  if (event.type === "memory_context")
+    return {
+      ...base,
+      title: "巡检记忆",
+      state: "context",
+      input: clip({ scope: event.scope, observationIds: event.observationIds }),
+    };
   if (
     event.type === "auto_compaction_start" ||
     event.type === "auto_compaction_end"
@@ -189,7 +196,7 @@ export async function readTrajectory(file, extra = [], options = {}) {
 export async function sessionTrajectory(store, id, options = {}) {
   const tasks = store.sessionTasks(id);
   if (!tasks.length) return null;
-  const events = [];
+  const parts = [];
   let turnOffset = 0;
   const journalDirs = new Set();
   for (let i = 0; i < tasks.length; i++) {
@@ -199,11 +206,9 @@ export async function sessionTrajectory(store, id, options = {}) {
         (task.result?.sessionFile
           ? path.dirname(task.result.sessionFile)
           : null);
-    const records = await readTrajectory(
-      dir && !journalDirs.has(dir) ? `${dir}/events.jsonl` : null,
-      store.userTaskEvents(task.id),
-      { all: true, status: task.status },
-    );
+    const file =
+      dir && !journalDirs.has(dir) ? path.join(dir, "events.jsonl") : null;
+    const meta = await store.trajectoryIndex.update(file, task.status);
     if (dir) journalDirs.add(dir);
     const goal = traceEvent(
       {
@@ -215,21 +220,109 @@ export async function sessionTrajectory(store, id, options = {}) {
       },
       "goal",
     );
-    const entries = records.events.some((event) => event.state === "user")
-      ? records.events
-      : [goal, ...records.events];
-    for (const event of entries)
-      events.push({
-        ...event,
-        id: `${task.id}:${event.id}`,
-        turn: turnOffset + (event.localTurn ?? 1),
+    if (!meta.hasUser)
+      parts.push({ events: [goal], count: 1, taskId: task.id, turnOffset });
+    const context = store
+      .taskContextEvents(task.id)
+      .filter((raw) => raw.type === "memory_context")
+      .map((raw) => ({
+        ...traceEvent(raw, `context:${raw.seq}`),
+        localTurn: 1,
+      }));
+    if (context.length)
+      parts.push({
+        events: context,
+        count: context.length,
         taskId: task.id,
+        turnOffset,
       });
-    turnOffset += Math.max(1, ...entries.map((event) => event.localTurn ?? 1));
+    if (meta.count)
+      parts.push({
+        file,
+        count: meta.count,
+        taskId: task.id,
+        turnOffset,
+        status: task.status,
+      });
+    const extra = store.userTaskEvents(task.id).map((raw) => ({
+      ...traceEvent(raw, `accepted:${raw.seq}`),
+      title: "追加指令已接受",
+      localTurn: meta.turns,
+    }));
+    if (extra.length)
+      parts.push({
+        events: extra,
+        count: extra.length,
+        taskId: task.id,
+        turnOffset,
+      });
+    turnOffset += meta.turns;
   }
   return {
-    ...trajectoryPage(events, options),
+    ...indexedPage(store, parts, options),
     sessionId: id,
     turnCount: turnOffset,
   };
+}
+
+function indexedPage(store, parts, options) {
+  trajectoryPage([], options);
+  const total = parts.reduce((sum, part) => sum + part.count, 0),
+    end = Math.min(options.before ?? total, total),
+    start = Math.max(0, end - (options.limit ?? 50));
+  const events = [];
+  let position = 0;
+  for (const part of parts) {
+    const from = Math.max(0, start - position),
+      to = Math.min(part.count, end - position);
+    if (from < to) {
+      const records = part.events
+        ? part.events.slice(from, to)
+        : store.trajectoryIndex.page(part.file, from, to - from, part.status);
+      for (const event of records)
+        events.push({
+          ...event,
+          id: part.taskId ? `${part.taskId}:${event.id}` : event.id,
+          taskId: part.taskId,
+          turn: (part.turnOffset ?? 0) + (event.localTurn ?? 1),
+        });
+    }
+    position += part.count;
+  }
+  return {
+    events,
+    total,
+    nextBefore: start > 0 ? start : null,
+    limited: start > 0,
+  };
+}
+export async function indexedTrajectory(
+  store,
+  file,
+  status,
+  extra = [],
+  options = {},
+) {
+  const meta = await store.trajectoryIndex.update(file, status),
+    parts = [];
+  const context = extra.filter((raw) => raw.type === "memory_context");
+  if (context.length)
+    parts.push({
+      events: context.map((raw) => ({
+        ...traceEvent(raw, `context:${raw.seq}`),
+        localTurn: 1,
+      })),
+      count: context.length,
+    });
+  if (meta.count) parts.push({ file, count: meta.count, status });
+  extra = extra.filter((raw) => raw.type !== "memory_context");
+  if (extra.length)
+    parts.push({
+      events: extra.map((raw) => ({
+        ...traceEvent(raw, `accepted:${raw.seq}`),
+        localTurn: meta.turns,
+      })),
+      count: extra.length,
+    });
+  return indexedPage(store, parts, options);
 }

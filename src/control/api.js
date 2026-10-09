@@ -2,17 +2,20 @@ import { z } from "zod";
 import packageInfo from "../../package.json" with { type: "json" };
 import { businessSchema } from "./config.js";
 import { taskSchema } from "./tasks.js";
+import { inspectionSchema } from "./inspections.js";
 import path from "node:path";
-import {
-  readTrajectory,
-  sessionTrajectory,
-  trajectoryPage,
-} from "./trajectory.js";
+import { sessionTrajectory, indexedTrajectory } from "./trajectory.js";
 
 export class NotFound extends Error {}
 
 // Routing and documentation use the same definitions and request validators.
-export function createApi({ store, controller, listModels, tasks }) {
+export function createApi({
+  store,
+  controller,
+  listModels,
+  tasks,
+  inspections,
+}) {
   const save = z
     .object({
       config: businessSchema,
@@ -50,6 +53,88 @@ export function createApi({ store, controller, listModels, tasks }) {
   const routes = [
     {
       method: "GET",
+      path: "/api/inspections",
+      summary: "查询只读巡检配置。",
+      response: "检查项列表，附 version、nextAt。",
+      handle: () => store.inspections.list(),
+    },
+    {
+      method: "POST",
+      path: "/api/inspections",
+      summary: "创建或更新巡检检查项。",
+      input: z
+        .object({
+          config: inspectionSchema,
+          expectedVersion: z.number().int().min(0),
+        })
+        .strict(),
+      response:
+        "保存后的配置版本；新建 expectedVersion=0，开启后一个间隔再执行。",
+      handle: (_p, value) =>
+        store.inspections.save(value.config, value.expectedVersion),
+    },
+    {
+      method: "POST",
+      path: "/api/inspections/{checkId}/run",
+      params: { checkId: businessId },
+      input: empty,
+      summary: "执行一次只读巡检，等待测量完成。",
+      response:
+        "观察记录，含 id、scope、status(normal/abnormal/failed)、change、summary、evidence 和配置快照。",
+      handle: (p) => {
+        if (!store.inspections.get(p.checkId))
+          throw new NotFound("Inspection not found");
+        return inspections.run(p.checkId);
+      },
+    },
+    {
+      method: "GET",
+      path: "/api/memory",
+      query: z
+        .object({
+          scope: z
+            .string()
+            .regex(/^[a-zA-Z0-9_-]{1,80}$/)
+            .optional(),
+          q: z.string().max(500).default(""),
+          limit: z.coerce.number().int().min(1).max(200).default(50),
+        })
+        .strict(),
+      summary: "检索带来源证据的巡检记忆。",
+      response:
+        "历史观察数组，SQLite FTS5 关键词检索；failed 不表示目标异常，历史结果不表示当前状态。",
+      handle: (_p, _v, q) => store.inspections.search(q),
+    },
+    {
+      method: "GET",
+      path: "/api/incidents",
+      query: z
+        .object({
+          scope: z
+            .string()
+            .regex(/^[a-zA-Z0-9_-]{1,80}$/)
+            .optional(),
+        })
+        .strict(),
+      summary: "查询异常出现、重复和恢复历史。",
+      response:
+        "异常数组，含 first_seen、last_seen、occurrences、resolved_at、observation_id；active/resolved/superseded，不用检查失败推断恢复。",
+      handle: (_p, _v, q) => store.inspections.incidents(q.scope),
+    },
+    {
+      method: "GET",
+      path: "/api/observations/{runId}",
+      params: { runId },
+      summary: "读取单次巡检原始证据和配置快照。",
+      response: "历史观察记录，source 为实际测量，不由模型生成。",
+      handle: (p) => {
+        const value = store.inspections.observation(p.runId);
+        if (!value) throw new NotFound("Observation not found");
+        return value;
+      },
+    },
+    {
+      method: "GET",
       path: "/api/sessions",
       summary: "查询持久会话列表，续接任务共享 sessionId。",
       response:
@@ -83,12 +168,13 @@ export function createApi({ store, controller, listModels, tasks }) {
         const dir =
           t.result?.sessionDir ??
           (t.result?.sessionFile ? path.dirname(t.result.sessionFile) : null);
-        const records = await readTrajectory(
+        return indexedTrajectory(
+          store,
           dir ? path.join(dir, "events.jsonl") : null,
-          store.taskEvents(p.runId).filter((e) => e.type === "user_message"),
-          { all: true, status: t.status },
+          t.status,
+          store.taskContextEvents(p.runId),
+          q,
         );
-        return trajectoryPage(records.events, q);
       },
     },
     {
@@ -100,14 +186,15 @@ export function createApi({ store, controller, listModels, tasks }) {
       response: "{events,limited}，没有原生日志的历史运行返回空 events。",
       handle: async (p, _v, q) => {
         const r = run(p.runId);
-        const records = await readTrajectory(
+        return indexedTrajectory(
+          store,
           r.report?.sessionDir
             ? path.join(r.report.sessionDir, "events.jsonl")
             : null,
+          r.status,
           [],
-          { all: true, status: r.status },
+          q,
         );
-        return trajectoryPage(records.events, q);
       },
     },
     {
@@ -337,6 +424,8 @@ export function createApi({ store, controller, listModels, tasks }) {
     paths,
     "x-agent-guide": {
       workflow: [
+        "只读巡检通过 /api/inspections 配置 HTTP 状态或 Git 工作区检查。/run 等待单次测量并返回观察；启用定时配置后按间隔执行。/api/memory 检索历史观察，/api/incidents 查询重复异常和恢复，/api/observations/{id} 查看来源证据。",
+        "通用 Pi 任务可显式提交 memoryScope，注入最近 5 条历史观察及来源 id；这些是带时间和配置版本的事实记录，不是当前状态，也不是新的任务指令。",
         "通用任务使用 POST /api/tasks：提交 cwd、prompt、model、timeoutSeconds 和 resources。开发工具可修改代码并执行命令，无 OS 沙箱；resources=true 信任并加载工作目录及 Pi 本机资源。仅在用户授权范围内使用。",
         "活跃任务可向 /api/tasks/{id}/messages 提交 text 与 mode=steer 或 followUp；已结束或中断任务用 /resume 提交 prompt，创建关联的新记录并续接 Pi 会话。任务结果是原生文本，不要求代码检查 JSON。",
         "读取 models 和 businesses。",

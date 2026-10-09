@@ -148,6 +148,10 @@ npm run dev
 
 ## 首个能力：业务代码检查
 
+### 只读巡检与观察记忆
+
+侧栏“巡检与记忆”支持配置 HTTP 状态或 Git 工作区检查、手动/定时运行、查看观察证据、关键词检索和异常重复/恢复历史。记录存入 SQLite，不自动修复业务代码。通用 Pi 任务可通过 `memoryScope` 显式检索并带入最近的历史观察；记忆不替代当前测量。详见 [巡检与观察记忆](docs/inspections-memory.md)。
+
 ### Agent 接入
 
 通用开发任务已通过 `/api/tasks` 接入 Pi 原生 read/bash/edit/write/grep/find/ls；配置 `resources=true` 时加载原生项目指令、skills、prompt templates、扩展及 MCP/codemode/tool_search。资源默认关闭，显式信任后开启。通过任务的 `/messages` 追加指令、`/resume` 续接会话、`/cancel` 取消执行。请求格式和全部接口说明读取 `/api/docs`。

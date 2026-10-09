@@ -6,6 +6,7 @@ import { Store, Conflict } from "./control/store.js";
 import { Controller } from "./control/controller.js";
 import { createApi, NotFound } from "./control/api.js";
 import { TaskRunner } from "./control/tasks.js";
+import { InspectionRunner } from "./control/inspections.js";
 
 const root = path.resolve(process.env.PRAXIS_DATA_DIR ?? ".praxis");
 await mkdir(root, { recursive: true });
@@ -30,9 +31,16 @@ const store = new Store(path.join(root, "control.sqlite"));
 store.recover();
 const controller = new Controller(store, cacheRoot);
 const tasks = new TaskRunner(store, controller, path.join(root, "tasks"));
-controller.externalBusy = () => tasks.active.size > 0;
+const inspections = new InspectionRunner(
+  store.inspections,
+  () => tasks.active.size > 0 || controller.active.size > 0,
+);
+controller.externalBusy = () =>
+  tasks.active.size > 0 || inspections.active.size > 0;
+tasks.externalBusy = () => inspections.active.size > 0;
 const api = createApi({
   tasks,
+  inspections,
   store,
   controller,
   async listModels() {
@@ -134,6 +142,7 @@ server.listen(port, "127.0.0.1", () =>
 const timer = setInterval(() => {
   try {
     controller.tick();
+    inspections.tick();
   } catch (error) {
     console.error(error.message);
   }
@@ -146,6 +155,7 @@ async function close() {
   server.close();
   await controller.close();
   await tasks.close();
+  await inspections.close();
   await vite?.close();
   store.close();
   await release();

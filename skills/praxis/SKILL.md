@@ -1,6 +1,6 @@
 ---
 name: praxis
-description: 通过 Praxis HTTP API 配置代码检查、执行 Pi 开发任务、续接会话和查询结果；在其他 Agent 需要对接或配置 Praxis 时使用。
+description: 通过 Praxis HTTP API 配置只读巡检、检索观察记忆、检查代码、执行 Pi 任务及续接会话；在其他 Agent 需要对接或配置 Praxis 时使用。
 ---
 
 # Praxis
