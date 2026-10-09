@@ -14,6 +14,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS versions (business_id TEXT NOT NULL REFERENCES businesses(id), version INTEGER NOT NULL, config TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(business_id, version));
       CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, business_id TEXT NOT NULL REFERENCES businesses(id), version INTEGER NOT NULL, trigger TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT, config TEXT NOT NULL, report TEXT, error TEXT);
       CREATE UNIQUE INDEX IF NOT EXISTS one_active_run ON runs(business_id) WHERE status = 'running';
+      CREATE TABLE IF NOT EXISTS tasks (id TEXT PRIMARY KEY, input TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, finished_at TEXT, result TEXT, error TEXT, parent_id TEXT);
+      CREATE TABLE IF NOT EXISTS task_events (task_id TEXT NOT NULL REFERENCES tasks(id), seq INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL);
     `);
   }
   listBusinesses() {
@@ -157,11 +159,82 @@ export class Store {
   recover() {
     this.db
       .prepare(
+        "UPDATE tasks SET status='interrupted',error='Control service restarted',finished_at=? WHERE status='running'",
+      )
+      .run(new Date().toISOString());
+    this.db
+      .prepare(
         "UPDATE runs SET status='interrupted',error='Control service restarted during execution',finished_at=? WHERE status='running'",
       )
       .run(new Date().toISOString());
   }
   close() {
     this.db.close();
+  }
+  createTask(input, parentId) {
+    const id = randomUUID();
+    this.db
+      .prepare(
+        "INSERT INTO tasks (id,input,status,created_at,parent_id) VALUES (?,?,?,?,?)",
+      )
+      .run(
+        id,
+        JSON.stringify(input),
+        "running",
+        new Date().toISOString(),
+        parentId ?? null,
+      );
+    return this.getTask(id);
+  }
+  getTask(id) {
+    const r = this.db.prepare("SELECT * FROM tasks WHERE id=?").get(id);
+    if (!r) return;
+    return {
+      id: r.id,
+      input: JSON.parse(r.input),
+      status: r.status,
+      createdAt: r.created_at,
+      finishedAt: r.finished_at,
+      result: r.result ? JSON.parse(r.result) : null,
+      error: r.error,
+      parentId: r.parent_id,
+    };
+  }
+  listTasks() {
+    return this.db
+      .prepare("SELECT id FROM tasks ORDER BY created_at DESC LIMIT 100")
+      .all()
+      .map((r) => this.getTask(r.id));
+  }
+  taskEvent(id, event) {
+    this.db
+      .prepare("INSERT INTO task_events (task_id,event) VALUES (?,?)")
+      .run(id, JSON.stringify(event));
+    if (event.type === "session_ready")
+      this.db
+        .prepare("UPDATE tasks SET result=? WHERE id=?")
+        .run(JSON.stringify(event), id);
+  }
+  taskEvents(id) {
+    return this.db
+      .prepare(
+        "SELECT seq,event FROM task_events WHERE task_id=? ORDER BY seq DESC LIMIT 200",
+      )
+      .all(id)
+      .reverse()
+      .map((r) => ({ seq: r.seq, ...JSON.parse(r.event) }));
+  }
+  finishTask(id, status, result, error = null) {
+    this.db
+      .prepare(
+        "UPDATE tasks SET status=?,result=COALESCE(?,result),error=?,finished_at=? WHERE id=?",
+      )
+      .run(
+        status,
+        result ? JSON.stringify(result) : null,
+        error,
+        new Date().toISOString(),
+        id,
+      );
   }
 }

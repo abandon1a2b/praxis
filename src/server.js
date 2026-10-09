@@ -5,6 +5,7 @@ import path from "node:path";
 import { Store, Conflict } from "./control/store.js";
 import { Controller } from "./control/controller.js";
 import { createApi, NotFound } from "./control/api.js";
+import { TaskRunner } from "./control/tasks.js";
 
 const root = path.resolve(process.env.PRAXIS_DATA_DIR ?? ".praxis");
 await mkdir(root, { recursive: true });
@@ -28,7 +29,10 @@ for (const entry of await readdir(cacheRoot, { withFileTypes: true })) {
 const store = new Store(path.join(root, "control.sqlite"));
 store.recover();
 const controller = new Controller(store, cacheRoot);
+const tasks = new TaskRunner(store, controller, path.join(root, "tasks"));
+controller.externalBusy = () => tasks.active.size > 0;
 const api = createApi({
+  tasks,
   store,
   controller,
   async listModels() {
@@ -141,6 +145,7 @@ async function close() {
   clearInterval(timer);
   server.close();
   await controller.close();
+  await tasks.close();
   await vite?.close();
   store.close();
   await release();

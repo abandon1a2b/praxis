@@ -150,6 +150,10 @@ npm run dev
 
 ### Agent 接入
 
+通用开发任务已通过 `/api/tasks` 接入 Pi 原生 read/bash/edit/write/grep/find/ls；配置 `resources=true` 时加载原生项目指令、skills、prompt templates、扩展及 MCP/codemode/tool_search。资源默认关闭，显式信任后开启。通过任务的 `/messages` 追加指令、`/resume` 续接会话、`/cancel` 取消执行。请求格式和全部接口说明读取 `/api/docs`。
+
+开发任务使用真实工作目录，具有当前系统账号权限，尚无 OS 沙箱；它与只读代码检查是不同的执行模式。页面目前仍用于业务检查，通用任务通过 API 操作。`npm run verify:pi` 在临时项目中实测编辑、测试、项目资源、MCP、追加指令和会话续接，不修改业务仓库。
+
 提供短 skill：[skills/praxis/SKILL.md](skills/praxis/SKILL.md)。其他 Agent 先读取 `GET /api/docs` 获取当前服务的 OpenAPI 文档及调用说明，再通过控制 API 配置业务、触发检查和查询结果。接口文档由实际路由定义和 Zod 请求校验 schema 生成，不维护独立的静态参数清单。
 
 将 `skills/praxis/` 目录放入 Agent 的技能目录即可使用；skill 不绑定业务仓库、公司或模型提供商。

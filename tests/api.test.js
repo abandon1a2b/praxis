@@ -3,6 +3,53 @@ import assert from "node:assert/strict";
 import { createApi, NotFound } from "../src/control/api.js";
 import { businessSchema } from "../src/control/config.js";
 
+test("generic task endpoints validate input and use native task controls", async () => {
+  let received, steering;
+  const task = {
+    id: "a-b",
+    status: "completed",
+    input: {
+      cwd: "/tmp/task",
+      prompt: "first",
+      model: { provider: "test", id: "model" },
+    },
+    result: { sessionFile: "/tmp/session" },
+  };
+  const api = createApi({
+    store: {
+      getTask: () => task,
+      listTasks: () => [task],
+      taskEvents: () => [],
+    },
+    controller: {},
+    listModels: async () => [],
+    tasks: {
+      start: (input, previous) => {
+        received = { input, previous };
+        return { id: "c-d" };
+      },
+      message: async (id, value) => {
+        steering = { id, value };
+      },
+    },
+  });
+  assert.throws(() =>
+    api.match("POST", "/api/tasks").execute({ cwd: "relative" }),
+  );
+  await api.match("POST", "/api/tasks").execute(task.input);
+  assert.equal(received.input.resources, false);
+  await api
+    .match("POST", "/api/tasks/a-b/resume")
+    .execute({ prompt: "continue" });
+  assert.equal(received.previous.id, "a-b");
+  assert.equal(received.input.prompt, "continue");
+  await api
+    .match("POST", "/api/tasks/a-b/messages")
+    .execute({ text: "run tests" });
+  assert.equal(steering.value.mode, "steer");
+  assert.ok(api.document.paths["/api/tasks"].post.requestBody);
+});
+
 test("business configuration supports a workspace with more than twenty repositories", () => {
   const config = {
     id: "workspace",

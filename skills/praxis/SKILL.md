@@ -1,6 +1,6 @@
 ---
 name: praxis
-description: 通过 Praxis 控制层 HTTP API 配置业务代码检查、触发运行和查询报告；在其他 Agent 需要对接或配置 Praxis 时使用。
+description: 通过 Praxis HTTP API 配置代码检查、执行 Pi 开发任务、续接会话和查询结果；在其他 Agent 需要对接或配置 Praxis 时使用。
 ---
 
 # Praxis

@@ -22,7 +22,7 @@ export class Controller {
   }
   start(id, trigger = "manual") {
     // Global concurrency is intentionally bounded to keep the first local runtime predictable.
-    if (this.active.size >= 1)
+    if (this.active.size >= 1 || this.externalBusy?.())
       throw new Conflict("Another review is active; wait for it to finish");
     const run = this.store.createRun(id, trigger);
     const abort = new AbortController();
@@ -83,7 +83,7 @@ export class Controller {
     active.abort.abort();
   }
   tick() {
-    if (this.active.size) return;
+    if (this.active.size || this.externalBusy?.()) return;
     const due = this.store
       .listBusinesses()
       .filter(

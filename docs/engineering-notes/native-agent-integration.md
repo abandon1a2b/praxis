@@ -17,3 +17,11 @@ Pi SDK 的 customTools 注册并不自动启用工具。第一次比较时保留
 工具执行不能暴露配置存储或凭据。当前非 OS 沙箱，开放 shell/写入前需强化隔离。大型快照依然会消耗本机内存和磁盘；全量覆盖、自动续接及实际费用预算尚未完成。原生 read 对超长行可能截断；任务应继续调查或如实记录限制，不能把截断当语法错误或全量检查成功。
 
 验证入口：`tests/native-review.test.js`、`npm run compare:harnesses`。比较应保持模型、推理、样例和时限一致；不能从小样本结论推导大型项目或修复任务已与其他 Harness 等价。
+
+## 原生开发任务接入
+
+通用任务改用 Pi DefaultResourceLoader、默认系统提示词与原生 coding tools，避免把只读检查提示词沿用到开发任务。resources 开关同时管理项目资源信任、skills、扩展与 MCP 内置 extension factories。SDK 本身不自动装载 CLI 的 MCP/codemode/tool_search，需要按官方 SDK 示例显式挂载、启用并 bindExtensions。项目指令、skill、扩展和 MCP 都需要实际触发验证，不能仅凭资源配置存在判断已接入。
+
+`npm run verify:pi` 创建临时 fixture，要求原生编辑修复、bash 测试、资源标记、MCP 调用及 steer 标记，再打开同一会话续接。开发模式无 OS 沙箱，不能沿用只读模式“无法修改控制层文件”的保证。当前没有自动续接策略，也未验证实际触发长上下文压缩；这些边界仍需单独验收。
+
+验证还发现 DefaultResourceLoader.reload 会重载设置，过早 applyOverrides 的 defaultTools 未保留。现在资源加载后再次应用原生工具列表，验收明确检查 read/bash/edit/write/grep/find/ls/codemode/tool_search 全部可用。2026-10-09 的完整实测通过，证据目录为 `/var/folders/ym/rd5r62yn3zsbzm1pbpj9087h0000gn/T/praxis-full-pi-NeFpUI`；其中 result.json 含资源、工具事件、回复及同一会话续接结果。

@@ -13,6 +13,10 @@ The current Pi session has read-only native tools with canonical path validation
 
 ## Runtime semantics
 
+Generic development tasks use `/api/tasks` with an explicit working directory, prompt and model. They use Pi's native coding tools and default system prompt. `resources=true` grants project resource trust and enables the native resource loader, project context, skills, extensions, prompt templates, MCP, codemode and tool search. Resource discovery diagnostics are emitted as task events. The default is false. There is no OS sandbox in development mode: arbitrary commands and trusted extensions have the service account's access, including access outside cwd. The read-only snapshot restriction applies only to business review, not to development tasks.
+
+Tasks are persisted separately from business configurations. Each resume creates a new task with parentId and the original immutable input plus a new prompt; Pi opens the previous session file. Active tasks accept steer/followUp via native Pi methods. Original input remains unchanged and accepted messages are recorded as events. Review and task execution share a global single-run limit. Task sessions and event journals remain available after service restart; interrupted tasks can be explicitly resumed. The console has not yet added a generic task UI; agents use the documented API.
+
 One control service owns a local data directory, enforced with proper-lockfile's atomic directory lock and heartbeat. A crash lock expires after 30 seconds; startup retries for up to 35 seconds. SQLite uses WAL and transactional writes. Global review concurrency is one. Duplicate active runs are rejected.
 
 Saving an enabled configuration schedules its first run one interval later. A run starts the next interval from its trigger time. If that interval elapses during execution, the next run waits for the active run to finish. After downtime, a due business runs once; missed intervals are not replayed. Disabling a schedule affects future triggers; cancellation is a separate operation for an active run.

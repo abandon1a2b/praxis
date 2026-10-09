@@ -1,11 +1,12 @@
 import { z } from "zod";
 import packageInfo from "../../package.json" with { type: "json" };
 import { businessSchema } from "./config.js";
+import { taskSchema } from "./tasks.js";
 
 export class NotFound extends Error {}
 
 // Routing and documentation use the same definitions and request validators.
-export function createApi({ store, controller, listModels }) {
+export function createApi({ store, controller, listModels, tasks }) {
   const save = z
     .object({
       config: businessSchema,
@@ -29,7 +30,101 @@ export function createApi({ store, controller, listModels }) {
     if (!value) throw new NotFound("Run not found");
     return value;
   };
+  const task = (id) => {
+    const value = store.getTask(id);
+    if (!value) throw new NotFound("Task not found");
+    return value;
+  };
   const routes = [
+    {
+      method: "GET",
+      path: "/api/tasks",
+      summary: "查询通用 Pi 任务。",
+      response: "最近 100 个任务，含输入、状态、结果、sessionFile。",
+      handle: () => store.listTasks(),
+    },
+    {
+      method: "POST",
+      path: "/api/tasks",
+      summary: "启动原生开发任务（可编辑文件、执行命令，无 OS 沙箱）。",
+      input: taskSchema,
+      status: 202,
+      response: "任务对象，记录 id 后查询状态及事件。",
+      handle: (_p, value) => tasks.start(value),
+    },
+    {
+      method: "GET",
+      path: "/api/tasks/{runId}",
+      params: { runId },
+      summary: "查询通用任务状态和原生会话结果。",
+      response:
+        "任务对象；result.text 为最后回复，result.sessionFile 为服务内部续接引用。",
+      handle: (p) => task(p.runId),
+    },
+    {
+      method: "GET",
+      path: "/api/tasks/{runId}/events",
+      params: { runId },
+      summary: "查询最近 200 条任务事件。",
+      response:
+        "按 seq 排列的事件，包含 session_ready 的工具/资源清单及工具运行事件。",
+      handle: (p) => {
+        task(p.runId);
+        return store.taskEvents(p.runId);
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/tasks/{runId}/cancel",
+      params: { runId },
+      summary: "取消通用任务。",
+      input: empty,
+      status: 202,
+      response: "{ok:true}，查询任务至终态。",
+      handle: (p) => {
+        task(p.runId);
+        tasks.cancel(p.runId);
+        return { ok: true };
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/tasks/{runId}/messages",
+      params: { runId },
+      summary: "通过 Pi steer/followUp 向活跃任务追加指令。",
+      input: z
+        .object({
+          text: z.string().trim().min(1).max(50000),
+          mode: z.enum(["steer", "followUp"]).default("steer"),
+        })
+        .strict(),
+      status: 202,
+      response: "{ok:true} 表示 Pi 已接受追加指令；不修改原始输入目标。",
+      handle: async (p, value) => {
+        task(p.runId);
+        await tasks.message(p.runId, value);
+        return { ok: true };
+      },
+    },
+    {
+      method: "POST",
+      path: "/api/tasks/{runId}/resume",
+      params: { runId },
+      summary: "继续已结束或中断的任务会话，创建新的任务记录。",
+      input: z.object({ prompt: z.string().trim().min(1).max(50000) }).strict(),
+      status: 202,
+      response:
+        "新任务对象，parentId 指向原任务；原会话通过 Pi SessionManager.open 续接。",
+      handle: (p, value) => {
+        const previous = task(p.runId);
+        if (previous.status === "running")
+          throw new Error("Task is still active");
+        return tasks.start(
+          { ...previous.input, prompt: value.prompt },
+          previous,
+        );
+      },
+    },
     {
       method: "GET",
       path: "/api/docs",
@@ -159,6 +254,8 @@ export function createApi({ store, controller, listModels }) {
     paths,
     "x-agent-guide": {
       workflow: [
+        "通用任务使用 POST /api/tasks：提交 cwd、prompt、model、timeoutSeconds 和 resources。开发工具可修改代码并执行命令，无 OS 沙箱；resources=true 信任并加载工作目录及 Pi 本机资源。仅在用户授权范围内使用。",
+        "活跃任务可向 /api/tasks/{id}/messages 提交 text 与 mode=steer 或 followUp；已结束或中断任务用 /resume 提交 prompt，创建关联的新记录并续接 Pi 会话。任务结果是原生文本，不要求代码检查 JSON。",
         "读取 models 和 businesses。",
         "创建配置 expectedVersion=0；更新时提交完整 config，expectedVersion 使用当前 version。不要把只读 version、nextAt 放入 config。",
         "配置 enabled=true 后首个定时运行在一个间隔之后；不希望定时运行则保持 false。",
