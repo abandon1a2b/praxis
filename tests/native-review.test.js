@@ -63,7 +63,7 @@ test("native review uses intact source, verifies citations and keeps source unch
     const report = await runAgentReview(
       config,
       path.join(root, "run"),
-      async ({ workspace }, onEvent) => {
+      async ({ workspace, prompt }, onEvent) => {
         assert.equal(
           await readFile(path.join(workspace, "repo/a.js"), "utf8"),
           text,
@@ -76,6 +76,13 @@ test("native review uses intact source, verifies citations and keeps source unch
           limit: 1,
           truncated: false,
         });
+        if (prompt.includes("Map business entry points"))
+          return { text: '{"summary":"fixture module"}', usage: [] };
+        if (prompt.includes("Independently challenge"))
+          return {
+            text: '{"verdict":"confirmed","reason":"fixture static evidence"}',
+            usage: [],
+          };
         return {
           text: JSON.stringify({
             findings: [
@@ -95,7 +102,9 @@ test("native review uses intact source, verifies citations and keeps source unch
       },
     );
     assert.equal(report.engine, "pi-native");
-    assert.equal(report.toolCalls, 1);
+    assert.ok(report.toolCalls > 1);
+    assert.ok(report.plan.every((unit) => unit.status === "completed"));
+    assert.equal(report.findings[0].verification.status, "confirmed");
     assert.equal(report.coverage.fullyVerified, false);
     assert.equal(report.findings.length, 1);
     assert.equal(await readFile(path.join(repo, "a.js"), "utf8"), text);

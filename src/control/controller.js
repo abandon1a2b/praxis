@@ -56,6 +56,7 @@ export class Controller {
               nativeHarness(abort.signal),
               (report) => this.store.progress(run.id, report),
               abort.signal,
+              path.join(this.cacheRoot, "plans", config.id),
             );
         this.store.finish(
           run.id,

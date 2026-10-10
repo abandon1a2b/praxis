@@ -50,7 +50,7 @@ export const businessSchema = z
       .min(1000)
       .max(100000)
       .default(40000)
-      .describe("仅保留给旧分批调试入口；原生 Agent 默认路径不使用。"),
+      .describe("模块检查计划每批代码字符预算，长文件拆成多个范围。"),
     timeoutSeconds: z
       .number()
       .int()

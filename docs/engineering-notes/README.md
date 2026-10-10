@@ -6,6 +6,8 @@
 
 ## 专题索引
 
+- [检查计划、复核与恢复](planned-review-and-recovery.md)：单次探索的覆盖限制、控制层计划、分阶段 checkpoint 与静态复核边界。
+
 - [代码检查分批边界](code-review-batching.md)：长行、字符预算、原始位置、Unicode 与缓存兼容问题。
 - [原生 Agent 接入边界](native-agent-integration.md)：工具启用、跨程序输出契约和原生执行能力验证。
 - [长轨迹索引与虚拟化](trajectory-index-and-virtualization.md)：增量字节游标、配对更新、源文件代次、动态行高度和阅读锚点。

@@ -27,9 +27,20 @@ export type Finding = {
   trigger: string;
   explanation: string;
   evidence: string;
+  verification?: { status: string; reason?: string; method?: string };
 };
 export type Report = {
   engine?: string;
+  phase?: string;
+  resumed?: boolean;
+  structure?: string;
+  plan?: {
+    id: string;
+    module: string;
+    status: string;
+    error?: string;
+    ranges: { file: string; start: number; end: number }[];
+  }[];
   toolCalls?: number;
   coverage?: {
     totalFiles: number;

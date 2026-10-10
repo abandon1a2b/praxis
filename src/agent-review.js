@@ -1,7 +1,14 @@
 import path from "node:path";
-import { mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, writeFile, rm, readFile, rename } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { snapshot, validateFindings } from "./review.js";
+import {
+  createPlan,
+  PLAN_VERSION,
+  parseObject,
+  phasePrompt,
+  verificationPrompt,
+} from "./review-plan.js";
 
 export function reviewPrompt(config, files = []) {
   return `${config.focus}\nExplore the repositories under the current directory with tools; track cross-file contracts. File identifiers are relative to the current workspace, never prefix its directory name. ${files.length ? `There are ${files.length} authorized files. Sample identifiers: ${JSON.stringify(files.slice(0, 50))}. Discover the remaining files with find/ls.` : ""} Return only JSON {"findings":[{"file":"repository-name/relative/path","line":1,"severity":"high|medium|low","title":"...","trigger":"concrete conditions","explanation":"impact and reasoning","evidence":"exact nonempty substring of the cited original line"}]}. Empty findings is valid. Review code, not style. Explicitly inspect relevant files before reporting. Do not modify files.`;
@@ -13,6 +20,7 @@ export async function runAgentReview(
   execute,
   onProgress = async () => {},
   signal,
+  checkpointRoot = path.join(runDir, "checkpoints"),
 ) {
   const input = await snapshot(config, signal);
   signal?.throwIfAborted();
@@ -21,12 +29,23 @@ export async function runAgentReview(
   const workspace = path.join(runDir, "workspace");
   const sessionDir = path.join(runDir, "session");
   await mkdir(workspace, { recursive: true });
-  const report = {
+  const snapshotId = createHash("sha256")
+    .update(
+      JSON.stringify({ version: PLAN_VERSION, config, files: input.files }),
+    )
+    .digest("hex");
+  await mkdir(checkpointRoot, { recursive: true });
+  const checkpointFile = path.join(checkpointRoot, `${snapshotId}.json`);
+  let saved;
+  try {
+    saved = JSON.parse(await readFile(checkpointFile, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const report = saved ?? {
     engine: "pi-native",
     status: "running",
-    snapshotId: createHash("sha256")
-      .update(JSON.stringify(input))
-      .digest("hex"),
+    snapshotId,
     revisions: input.revisions,
     skipped: input.skipped,
     totalBatches: 1,
@@ -39,8 +58,24 @@ export async function runAgentReview(
     },
     toolCalls: 0,
     sessionDir,
+    plan: createPlan(input.files, config.batchCharacters),
+    phase: "structure",
+    structure: null,
+    crossModuleComplete: false,
   };
-  await onProgress(structuredClone(report));
+  report.status = "running";
+  report.sessionDir = sessionDir;
+  report.revisions = input.revisions;
+  report.skipped = input.skipped;
+  report.resumed = Boolean(saved);
+  delete report.error;
+  report.totalBatches = report.plan.length;
+  const publish = async () => {
+    await writeFile(`${checkpointFile}.tmp`, JSON.stringify(report));
+    await rename(`${checkpointFile}.tmp`, checkpointFile);
+    await onProgress(structuredClone(report));
+  };
+  await publish();
   try {
     for (const file of input.files) {
       signal?.throwIfAborted();
@@ -48,40 +83,155 @@ export async function runAgentReview(
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, file.text, { flag: "wx", mode: 0o400 });
     }
-    const result = await execute(
-      {
-        workspace,
-        sessionDir,
-        config,
-        prompt: reviewPrompt(
+    const call = async (prompt) => {
+      signal?.throwIfAborted();
+      const result = await execute(
+        {
+          workspace,
+          sessionDir,
           config,
-          input.files.map((f) => f.id),
+          prompt,
+        },
+        async (event) => {
+          if (event.type === "tool_execution_start") report.toolCalls++;
+          if (event.type === "read") report.coverage.reads.push(event);
+          await onProgress(structuredClone(report));
+        },
+      );
+      signal?.throwIfAborted();
+      report.usage = [...(report.usage ?? []), ...(result.usage ?? [])];
+      return result.text;
+    };
+    const sourceRanges = input.files.map((file) => ({
+      file: file.id,
+      start: 1,
+      end: file.text.split("\n").length,
+      content: file.text,
+    }));
+    const sourceById = new Map(
+      input.files.map((f) => [f.id, f.text.split("\n")]),
+    );
+    const addFindings = (text) => {
+      for (const finding of validateFindings(text, sourceRanges)) {
+        const id = createHash("sha256")
+          .update(JSON.stringify([finding.file, finding.line, finding.title]))
+          .digest("hex");
+        if (!report.findings.some((f) => f.id === id))
+          report.findings.push({
+            ...finding,
+            id,
+            verification: { status: "pending" },
+          });
+      }
+    };
+    if (!report.structure) {
+      report.phase = "structure";
+      await publish();
+      const structure = parseObject(
+        await call(phasePrompt(config, "structure", report.plan)),
+      );
+      if (
+        typeof structure.summary !== "string" ||
+        !structure.summary.trim() ||
+        structure.summary.length > 12000
+      )
+        throw new Error("Invalid structure summary");
+      report.structure = structure.summary;
+      await publish();
+    }
+    for (const unit of report.plan) {
+      if (unit.status === "completed") continue;
+      report.phase = "module";
+      unit.status = "running";
+      await publish();
+      try {
+        const before = report.coverage.reads.length;
+        const excerpts = unit.ranges.map((range) => {
+          const lines = sourceById
+            .get(range.file)
+            .slice(range.start - 1, range.end);
+          if (range.startColumn !== undefined)
+            lines[0] = lines[0].slice(range.startColumn - 1, range.endColumn);
+          return {
+            ...range,
+            code: lines
+              .map((line, i) => `${range.start + i}: ${line}`)
+              .join("\n"),
+          };
+        });
+        const output = await call(
+          phasePrompt(config, "module", {
+            structure: report.structure,
+            unit,
+            excerpts,
+          }),
+        );
+        const reads = report.coverage.reads.slice(before);
+        unit.unreadFiles = [...new Set(unit.ranges.map((r) => r.file))].filter(
+          (file) => !reads.some((r) => r.file === file && !r.error),
+        );
+        if (unit.unreadFiles.length)
+          throw new Error(
+            `Assigned files were not read: ${unit.unreadFiles.join(", ")}`,
+          );
+        addFindings(output);
+        unit.status = "completed";
+        delete unit.error;
+        report.completed.push({
+          index: report.plan.indexOf(unit),
+          ranges: unit.ranges,
+          finishedAt: new Date().toISOString(),
+        });
+        await publish();
+      } catch (error) {
+        unit.status = "failed";
+        unit.error = error.message;
+        throw error;
+      }
+    }
+    if (!report.crossModuleComplete) {
+      report.phase = "cross-module";
+      await publish();
+      addFindings(
+        await call(
+          phasePrompt(config, "cross-module", {
+            structure: report.structure,
+            modules: [...new Set(report.plan.map((u) => u.module))],
+            findings: report.findings,
+          }),
         ),
-      },
-      async (event) => {
-        if (event.type === "tool_execution_start") report.toolCalls++;
-        if (event.type === "read") report.coverage.reads.push(event);
-        await onProgress(structuredClone(report));
-      },
-    );
-    signal?.throwIfAborted();
-    report.findings = validateFindings(
-      result.text,
-      input.files.map((file) => ({
-        file: file.id,
-        start: 1,
-        end: file.text.split("\n").length,
-        content: file.text,
-      })),
-    );
-    report.usage = result.usage;
+      );
+      report.crossModuleComplete = true;
+      await publish();
+    }
+    report.phase = "verification";
+    await publish();
+    for (const finding of report.findings) {
+      if (finding.verification.status !== "pending") continue;
+      const verdict = parseObject(await call(verificationPrompt(finding)));
+      if (
+        !["confirmed", "rejected", "needs-context"].includes(verdict.verdict) ||
+        typeof verdict.reason !== "string" ||
+        !verdict.reason.trim()
+      )
+        throw new Error("Invalid verification result");
+      finding.verification = {
+        status: verdict.verdict,
+        reason: verdict.reason,
+        method: "model-static-review",
+      };
+      await publish();
+    }
     report.status = "completed";
+    report.phase = "completed";
     // Read observations are evidence of access, never an assertion of semantic review coverage.
-    report.completed = [
-      { index: 0, ranges: [], finishedAt: new Date().toISOString() },
-    ];
-    await onProgress(structuredClone(report));
+    await publish();
     return report;
+  } catch (error) {
+    report.status = signal?.aborted ? "interrupted" : "failed";
+    report.error = error.message;
+    await publish();
+    throw error;
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

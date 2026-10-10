@@ -301,10 +301,32 @@ test("native coverage distinguishes file access from full semantic verification"
     error: null,
     report: {
       engine: "pi-native",
+      phase: "verification",
+      resumed: true,
+      structure: "API module",
+      plan: [
+        {
+          id: "repo:0",
+          module: "repo",
+          status: "completed",
+          ranges: [{ file: "repo/a.js", start: 1, end: 10 }],
+        },
+      ],
       toolCalls: 4,
       totalBatches: 1,
       completed: [{ index: 0, ranges: [] }],
-      findings: [],
+      findings: [
+        {
+          file: "repo/a.js",
+          line: 1,
+          title: "Candidate issue",
+          severity: "medium",
+          trigger: "input",
+          explanation: "impact",
+          evidence: "const",
+          verification: { status: "needs-context", reason: "caller missing" },
+        },
+      ],
       skipped: [],
       revisions: {},
       coverage: {
@@ -337,7 +359,12 @@ test("native coverage distinguishes file access from full semantic verification"
     });
   });
   await page.goto("/");
+  await expect(page.getByText("需补充上下文", { exact: true })).toBeVisible();
   await page.getByRole("tab", { name: "覆盖范围", exact: true }).click();
+  await expect(page.getByText("检查计划", { exact: true })).toBeVisible();
+  await expect(page.getByText(/阶段：问题复核/)).toBeVisible();
+  await page.locator(".coverage details summary").first().click();
+  await expect(page.getByText("repo/a.js:1–10", { exact: true })).toBeVisible();
   await expect(
     page.getByText("范围内 2 个文件 · 读取 1 个文件 · 全量覆盖未验证", {
       exact: true,

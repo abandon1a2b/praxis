@@ -78,7 +78,13 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
             ? `工具调用 ${report.toolCalls ?? 0}`
             : `批次 ${report?.completed.length ?? 0} / ${report?.totalBatches ?? "—"}`}
         </span>
-        <span>{report?.findings.length ?? 0} 个待复核问题</span>
+        <span>
+          {report?.findings.length ?? 0} 个候选问题 ·{" "}
+          {report?.findings.filter(
+            (f) => !f.verification || f.verification.status === "pending",
+          ).length ?? 0}{" "}
+          个待复核
+        </span>
         <span>
           {run.config.model.id} · {run.config.model.thinking}
         </span>
@@ -140,6 +146,18 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
                       }
                     </Badge>
                     <h3>{f.title}</h3>
+                    <Badge variant="outline">
+                      {
+                        (
+                          {
+                            pending: "待复核",
+                            confirmed: "静态复核支持",
+                            rejected: "复核不支持",
+                            "needs-context": "需补充上下文",
+                          } as Record<string, string>
+                        )[f.verification?.status ?? "pending"]
+                      }
+                    </Badge>
                   </div>
                   <code>
                     {f.file}:{f.line}
@@ -150,6 +168,9 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
                     <dd>{f.trigger}</dd>
                   </dl>
                   <pre>{f.evidence}</pre>
+                  {f.verification?.reason ? (
+                    <p>{f.verification.reason}</p>
+                  ) : null}
                 </article>
               ))}
             </div>
@@ -169,6 +190,52 @@ export function ReportView({ run, cancel }: { run: Run; cancel: () => void }) {
         </TabsContent>
         <TabsContent value="coverage">
           <div className="coverage">
+            {report?.plan ? (
+              <>
+                <h3>检查计划</h3>
+                <p>
+                  阶段：
+                  {(
+                    {
+                      structure: "结构理解",
+                      module: "模块检查",
+                      "cross-module": "跨模块检查",
+                      verification: "问题复核",
+                      completed: "完成",
+                    } as Record<string, string>
+                  )[report.phase ?? ""] ?? report.phase}{" "}
+                  · {report.completed.length} / {report.plan.length} 批次 ·{" "}
+                  {report.resumed ? "已接续历史进度" : "新快照"}
+                </p>
+                {report.structure ? <p>{report.structure}</p> : null}
+                {report.plan.map((unit) => (
+                  <details key={unit.id}>
+                    <summary>
+                      {unit.module} ·{" "}
+                      {
+                        (
+                          {
+                            pending: "待检查",
+                            running: "检查中",
+                            completed: "批次已完成",
+                            failed: "检查失败",
+                          } as Record<string, string>
+                        )[unit.status]
+                      }{" "}
+                      · {unit.ranges.length} 个范围
+                    </summary>
+                    {unit.ranges.map((range, i) => (
+                      <p key={i}>
+                        <code>
+                          {range.file}:{range.start}–{range.end}
+                        </code>
+                      </p>
+                    ))}
+                    {unit.error ? <p>{unit.error}</p> : null}
+                  </details>
+                ))}
+              </>
+            ) : null}
             <h3>代码版本</h3>
             {Object.entries(report?.revisions ?? {}).map(([name, revision]) => (
               <p key={name}>
