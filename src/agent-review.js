@@ -8,6 +8,7 @@ import {
   parseObject,
   phasePrompt,
   verificationPrompt,
+  structureSummary,
 } from "./review-plan.js";
 
 export function reviewPrompt(config, files = []) {
@@ -58,7 +59,7 @@ export async function runAgentReview(
     },
     toolCalls: 0,
     sessionDir,
-    plan: createPlan(input.files, config.batchCharacters),
+    plan: createPlan(input.files, config.batchCharacters, config.topics),
     phase: "structure",
     structure: null,
     crossModuleComplete: false,
@@ -89,8 +90,15 @@ export async function runAgentReview(
         {
           workspace,
           sessionDir,
-          config,
+          config: {
+            ...config,
+            timeoutSeconds: Math.min(
+              config.timeoutSeconds ?? 180,
+              config.phaseTimeoutSeconds ?? 60,
+            ),
+          },
           prompt,
+          maxToolCalls: 8,
         },
         async (event) => {
           if (event.type === "tool_execution_start") report.toolCalls++;
@@ -127,25 +135,21 @@ export async function runAgentReview(
     if (!report.structure) {
       report.phase = "structure";
       await publish();
-      const structure = parseObject(
-        await call(phasePrompt(config, "structure", report.plan)),
-      );
-      if (
-        typeof structure.summary !== "string" ||
-        !structure.summary.trim() ||
-        structure.summary.length > 12000
-      )
-        throw new Error("Invalid structure summary");
-      report.structure = structure.summary;
+      report.structure = structureSummary(report.plan);
       await publish();
     }
-    for (const unit of report.plan) {
+    const work = report.plan
+      .filter((unit) => unit.status !== "completed")
+      .sort(
+        (a, b) =>
+          Number(a.status !== "pending") - Number(b.status !== "pending"),
+      );
+    for (const unit of work) {
       if (unit.status === "completed") continue;
       report.phase = "module";
       unit.status = "running";
       await publish();
       try {
-        const before = report.coverage.reads.length;
         const excerpts = unit.ranges.map((range) => {
           const lines = sourceById
             .get(range.file)
@@ -166,14 +170,7 @@ export async function runAgentReview(
             excerpts,
           }),
         );
-        const reads = report.coverage.reads.slice(before);
-        unit.unreadFiles = [...new Set(unit.ranges.map((r) => r.file))].filter(
-          (file) => !reads.some((r) => r.file === file && !r.error),
-        );
-        if (unit.unreadFiles.length)
-          throw new Error(
-            `Assigned files were not read: ${unit.unreadFiles.join(", ")}`,
-          );
+        unit.inputEvidence = "numbered-source-excerpts";
         addFindings(output);
         unit.status = "completed";
         delete unit.error;
@@ -186,21 +183,38 @@ export async function runAgentReview(
       } catch (error) {
         unit.status = "failed";
         unit.error = error.message;
-        throw error;
+        await publish();
+        if (signal?.aborted) throw error;
       }
     }
+    if (report.plan.some((unit) => unit.status !== "completed"))
+      throw new Error(
+        "Review has incomplete scopes; failed units are retained for a later run",
+      );
     if (!report.crossModuleComplete) {
       report.phase = "cross-module";
       await publish();
-      addFindings(
-        await call(
-          phasePrompt(config, "cross-module", {
-            structure: report.structure,
-            modules: [...new Set(report.plan.map((u) => u.module))],
-            findings: report.findings,
-          }),
-        ),
-      );
+      report.contractChecks ??= [];
+      for (const module of [...new Set(report.plan.map((u) => u.module))]) {
+        if (report.contractChecks.includes(module)) continue;
+        const units = report.plan.filter((u) => u.module === module);
+        addFindings(
+          await call(
+            phasePrompt(config, "cross-module", {
+              topic: module,
+              objective: units[0].objective,
+              files: [
+                ...new Set(units.flatMap((u) => u.ranges.map((r) => r.file))),
+              ],
+              findings: report.findings.filter((f) =>
+                units.some((u) => u.ranges.some((r) => r.file === f.file)),
+              ),
+            }),
+          ),
+        );
+        report.contractChecks.push(module);
+        await publish();
+      }
       report.crossModuleComplete = true;
       await publish();
     }

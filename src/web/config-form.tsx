@@ -61,6 +61,8 @@ export function ConfigForm({
           batchCharacters: business.batchCharacters,
           timeoutSeconds: business.timeoutSeconds,
           focus: business.focus,
+          phaseTimeoutSeconds: business.phaseTimeoutSeconds,
+          topics: structuredClone(business.topics ?? []),
         }
       : structuredClone(defaults),
   );

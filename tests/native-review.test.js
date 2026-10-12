@@ -22,6 +22,22 @@ test("native read/search tools reject traversal and permit authorized reads", as
     );
     assert.match(result.content[0].text, /42/);
     assert.equal(reads[0].file, "safe.js");
+    const bounded = (await scopedTools(root, () => {}, 1)).find(
+      (t) => t.name === "read",
+    );
+    await bounded.execute(
+      "bounded-1",
+      { path: "safe.js" },
+      new AbortController().signal,
+    );
+    await assert.rejects(
+      bounded.execute(
+        "bounded-2",
+        { path: "safe.js" },
+        new AbortController().signal,
+      ),
+      /budget exhausted/,
+    );
     for (const tool of tools)
       await assert.rejects(
         tool.execute(

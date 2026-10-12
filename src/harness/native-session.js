@@ -37,8 +37,13 @@ export function resourceLoader(system) {
   };
 }
 
-export async function scopedTools(workspace, onRead = () => {}) {
+export async function scopedTools(
+  workspace,
+  onRead = () => {},
+  maxCalls = Infinity,
+) {
   const root = await realpath(workspace);
+  let calls = 0;
   return [
     createReadToolDefinition(root),
     createGrepToolDefinition(root),
@@ -47,6 +52,10 @@ export async function scopedTools(workspace, onRead = () => {}) {
   ].map((tool) => ({
     ...tool,
     async execute(id, args, signal, update, context) {
+      if (++calls > maxCalls)
+        throw new Error(
+          "Review exploration budget exhausted. Return your bounded findings now; do not request more tools.",
+        );
       const target = await realpath(path.resolve(root, args.path ?? "."));
       if (target !== root && !target.startsWith(root + path.sep))
         throw new Error("Path outside authorized code snapshot");
@@ -85,6 +94,7 @@ export async function executeNative(
     mode = "review",
     resources = false,
     sessionFile,
+    maxToolCalls,
   },
   onEvent = () => {},
   onSession = () => {},
@@ -166,10 +176,14 @@ export async function executeNative(
     ...(mode === "review"
       ? {
           tools: ["read", "grep", "find", "ls"],
-          customTools: await scopedTools(workspace, (entry) => {
-            reads.push(entry);
-            onEvent({ type: "read", ...entry });
-          }),
+          customTools: await scopedTools(
+            workspace,
+            (entry) => {
+              reads.push(entry);
+              onEvent({ type: "read", ...entry });
+            },
+            maxToolCalls,
+          ),
         }
       : { excludeTools: [] }),
     resourceLoader: loader,

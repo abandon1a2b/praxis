@@ -59,6 +59,32 @@ export const businessSchema = z
       .default(180)
       .describe("默认原生 Agent 检查的总时限，包含扫描及模型执行。"),
     focus: z.string().trim().min(1).max(4000),
+    phaseTimeoutSeconds: z
+      .number()
+      .int()
+      .min(10)
+      .max(600)
+      .default(60)
+      .describe("每个审查阶段的时限，受整轮总时限约束。"),
+    topics: z
+      .array(
+        z
+          .object({
+            id: z.string().regex(/^[a-zA-Z0-9_-]{1,80}$/),
+            include: z.array(z.string().min(1).max(500)).min(1).max(100),
+            objective: z.string().trim().min(1).max(2000),
+          })
+          .strict(),
+      )
+      .max(30)
+      .default([])
+      .refine(
+        (topics) => new Set(topics.map((t) => t.id)).size === topics.length,
+        "Topic ids must be unique",
+      )
+      .describe(
+        "业务专题与判定标准；include 匹配仓库名/相对路径，重叠文件归首个专题，其余代码仍检查。",
+      ),
   })
   .strict();
 

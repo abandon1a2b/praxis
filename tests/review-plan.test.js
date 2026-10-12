@@ -22,6 +22,25 @@ test("plan assigns every range once and separates modules", () => {
   assert.equal(plan.flatMap((u) => u.ranges).length, 2);
 });
 
+test("topics join frontend and backend without dropping unassigned files", () => {
+  const files = [
+    "repo/app/auth.go",
+    "repo/web/login.ts",
+    "repo/app/post.go",
+  ].map((id) => ({ id, text: "code" }));
+  const plan = createPlan(files, 1000, [
+    {
+      id: "login",
+      include: ["**/auth.go", "**/login.ts"],
+      objective: "Check session identity contracts",
+    },
+  ]);
+  assert.equal(plan[0].module, "login");
+  assert.equal(plan[0].objective, "Check session identity contracts");
+  assert.equal(plan[0].ranges.length, 2);
+  assert.equal(plan.flatMap((u) => u.ranges).length, 3);
+});
+
 test("native checkpoints survive failure across distinct runs; changed code invalidates plan", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "praxis-plan-"));
   try {
@@ -57,7 +76,12 @@ test("native checkpoints survive failure across distinct runs; changed code inva
       evidence: "a = 1",
     };
     const stages = [];
-    const execute = async ({ prompt }, emit) => {
+    const execute = async (
+      { prompt, config: phaseConfig, maxToolCalls },
+      emit,
+    ) => {
+      assert.ok(phaseConfig.timeoutSeconds <= 60);
+      assert.equal(maxToolCalls, 8);
       if (prompt.includes("Map business")) {
         stages.push("structure");
         return { text: '{"summary":"one module"}' };
@@ -66,12 +90,7 @@ test("native checkpoints survive failure across distinct runs; changed code inva
         stages.push("verification");
         return { text: '{"verdict":"rejected","reason":"not a defect"}' };
       }
-      await emit({
-        type: "read",
-        file: "repo/a.js",
-        offset: 1,
-        truncated: false,
-      });
+      // Supplied excerpts count as input evidence; duplicated tool reads are unnecessary.
       if (prompt.includes("EVERY assigned")) {
         stages.push("module");
         return { text: JSON.stringify({ findings: [candidate] }) };
@@ -110,12 +129,17 @@ test("native checkpoints survive failure across distinct runs; changed code inva
     assert.equal(resumed.findings[0].verification.status, "rejected");
     assert.equal(stages.filter((s) => s === "module").length, 1);
     await writeFile(path.join(repo, "a.js"), "export const a = 2;");
+    await mkdir(path.join(repo, "extra"));
+    await writeFile(path.join(repo, "extra/b.js"), "export const b = 1;");
+    execFileSync("git", ["-C", repo, "add", "extra/b.js"]);
+    let attempts = 0;
     await assert.rejects(
       runAgentReview(
         config,
         path.join(root, "run3"),
         async () => {
-          throw new Error("new structure");
+          if (++attempts === 1) throw new Error("failed unit");
+          return { text: '{"findings":[]}' };
         },
         (r) => {
           latest = r;
@@ -123,10 +147,13 @@ test("native checkpoints survive failure across distinct runs; changed code inva
         undefined,
         checkpoints,
       ),
-      /new structure/,
+      /incomplete scopes/,
     );
     assert.notEqual(latest.snapshotId, resumed.snapshotId);
     assert.equal(latest.resumed, false);
+    assert.equal(latest.plan[0].error, "failed unit");
+    assert.equal(latest.completed.length, 1);
+    assert.equal(attempts, 2);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

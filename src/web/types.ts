@@ -14,6 +14,8 @@ export type BusinessConfig = {
   batchCharacters: number;
   timeoutSeconds: number;
   focus: string;
+  phaseTimeoutSeconds?: number;
+  topics?: { id: string; include: string[]; objective: string }[];
 };
 export type Business = BusinessConfig & {
   version: number;
